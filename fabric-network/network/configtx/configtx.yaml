@@ -4,7 +4,7 @@ Organizations:
   - &OrdererOrg
     Name: OrdererOrg
     ID: OrdererMSP
-    MSPDir: ../organizations/orderer/msp
+    MSPDir: ../../organizations/ordererOrganizations/example.com/msp
     Policies:
       Readers:
         Type: Signature
@@ -21,7 +21,7 @@ Organizations:
   - &Org1
     Name: Org1MSP
     ID: Org1MSP
-    MSPDir: ../organizations/org1/msp
+    MSPDir: ../../organizations/ordererOrganizations/example.com/msp
     Policies:
       Readers:
         Type: Signature
@@ -42,7 +42,7 @@ Organizations:
   - &Org2
     Name: Org2MSP
     ID: Org2MSP
-    MSPDir: ../organizations/org2/msp
+    MSPDir: ../../organizations/ordererOrganizations/example.com/msp
     Policies:
       Readers:
         Type: Signature
@@ -97,8 +97,8 @@ Orderer: &OrdererDefaults
     Consenters:
       - Host: orderer.example.com
         Port: 7050
-        ClientTLSCert: ../organizations/orderer/tls/server.crt
-        ServerTLSCert: ../organizations/orderer/tls/server.crt
+        ClientTLSCert: ../../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
+        ServerTLSCert: ../../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
   BatchTimeout: 2s
   BatchSize:
     MaxMessageCount: 10
