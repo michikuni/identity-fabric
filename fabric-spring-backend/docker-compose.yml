@@ -1,0 +1,42 @@
+version: '3.7'
+
+# Run alongside the Fabric network:
+#   docker-compose -f ../fabric-network/docker-compose.yaml \
+#                  -f docker-compose.yml up -d
+
+networks:
+  fabric_network:
+    external: true       # reuse the existing Fabric network
+
+services:
+
+  fabric-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fabric-spring-api
+    ports:
+      - "8080:8080"
+    environment:
+      # Fabric connection
+      FABRIC_TLS_CERT_PATH: /crypto/org1/peers/peer0/tls/ca.crt
+      FABRIC_CERT_PATH: /crypto/org1/users/User1@org1.example.com/msp/signcerts/cert.pem
+      FABRIC_KEY_PATH: /crypto/org1/users/User1@org1.example.com/msp/keystore/
+      # Override YAML properties
+      FABRIC_MSP_ID: Org1MSP
+      FABRIC_CHANNEL_NAME: mychannel
+      FABRIC_CHAINCODE_NAME: asset-transfer
+      FABRIC_PEER_ENDPOINT: peer0.org1.example.com:7051
+    volumes:
+      # Mount the Fabric crypto material from the network project
+      - ../fabric-network/organizations/org1:/crypto/org1:ro
+    networks:
+      - fabric_network
+    depends_on:
+      - peer0.org1.example.com
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5

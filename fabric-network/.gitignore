@@ -1,0 +1,18 @@
+# Generated crypto material
+organizations/
+
+# Channel artefacts
+network/channel-artifacts/
+
+# Maven build output
+**/target/
+*.tar.gz
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
