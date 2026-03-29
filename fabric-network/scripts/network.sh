@@ -21,7 +21,11 @@ DELAY=3
 MAX_RETRY=5
 VERBOSE=false
 
-export FABRIC_CFG_PATH="${PWD}/network/configtx"
+# configtxgen needs configtx.yaml
+export CONFIGTX_CFG_PATH="${PWD}/network/configtx"
+# peer binary needs core.yaml (ships in <fabric-binaries>/config/)
+export FABRIC_PEER_CFG_PATH="${PWD}/config"
+export FABRIC_CFG_PATH="${CONFIGTX_CFG_PATH}"
 export PATH="${PWD}/bin:${PATH}"
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
@@ -29,6 +33,11 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+# ── peer wrapper: use config/ for core.yaml, not configtx/ ───────────────────
+peer() {
+  FABRIC_CFG_PATH="${FABRIC_PEER_CFG_PATH}" command peer "$@"
+}
+
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
 checkPrereqs() {
