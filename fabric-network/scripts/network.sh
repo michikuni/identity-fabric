@@ -111,7 +111,7 @@ networkDown() {
 # ── Peer env helpers (absolute paths — no more relative-path confusion) ────────
 setGlobalsPeer0Org1() {
   export CORE_PEER_LOCALMSPID="Org1MSP"
-  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/org1/peers/peer0/tls/ca.crt"
+  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt"
   export CORE_PEER_MSPCONFIGPATH="${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp"
   export CORE_PEER_ADDRESS="localhost:7051"
   export CORE_PEER_TLS_ENABLED="true"
@@ -119,7 +119,7 @@ setGlobalsPeer0Org1() {
 
 setGlobalsPeer1Org1() {
   export CORE_PEER_LOCALMSPID="Org1MSP"
-  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/org1/peers/peer1/tls/ca.crt"
+  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls/ca.crt"
   export CORE_PEER_MSPCONFIGPATH="${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp"
   export CORE_PEER_ADDRESS="localhost:8051"
   export CORE_PEER_TLS_ENABLED="true"
@@ -127,7 +127,7 @@ setGlobalsPeer1Org1() {
 
 setGlobalsPeer0Org2() {
   export CORE_PEER_LOCALMSPID="Org2MSP"
-  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/org2/peers/peer0/tls/ca.crt"
+  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt"
   export CORE_PEER_MSPCONFIGPATH="${ROOT_DIR}/organizations/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp"
   export CORE_PEER_ADDRESS="localhost:9051"
   export CORE_PEER_TLS_ENABLED="true"
@@ -135,7 +135,7 @@ setGlobalsPeer0Org2() {
 
 setGlobalsPeer1Org2() {
   export CORE_PEER_LOCALMSPID="Org2MSP"
-  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/org2/peers/peer1/tls/ca.crt"
+  export CORE_PEER_TLS_ROOTCERT_FILE="${ROOT_DIR}/organizations/peerOrganizations/org2.example.com/peers/peer1.org2.example.com/tls/ca.crt"
   export CORE_PEER_MSPCONFIGPATH="${ROOT_DIR}/organizations/peerOrganizations/org2.example.com/users/User1@org2.example.com/msp"
   export CORE_PEER_ADDRESS="localhost:10051"
   export CORE_PEER_TLS_ENABLED="true"
