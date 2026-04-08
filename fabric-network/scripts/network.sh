@@ -154,6 +154,7 @@ createChannel() {
   setGlobalsPeer0Org1
   peer channel create \
     -o localhost:7050 \
+    --ordererTLSHostnameOverride orderer.example.com \
     -c "${CHANNEL_NAME}" \
     -f "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.tx" \
     --outputBlock "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.block" \
@@ -171,6 +172,7 @@ createChannel() {
   setGlobalsPeer0Org1
   peer channel update \
     -o localhost:7050 \
+    --ordererTLSHostnameOverride orderer.example.com \
     -c "${CHANNEL_NAME}" \
     -f "${ROOT_DIR}/network/channel-artifacts/Org1MSPanchors.tx" \
     --tls --cafile "${ORDERER_CA}"
@@ -178,6 +180,7 @@ createChannel() {
   setGlobalsPeer0Org2
   peer channel update \
     -o localhost:7050 \
+    --ordererTLSHostnameOverride orderer.example.com \
     -c "${CHANNEL_NAME}" \
     -f "${ROOT_DIR}/network/channel-artifacts/Org2MSPanchors.tx" \
     --tls --cafile "${ORDERER_CA}"
@@ -218,6 +221,7 @@ deployCC() {
     info "Approving chaincode for ${CORE_PEER_LOCALMSPID}…"
     peer lifecycle chaincode approveformyorg \
       -o localhost:7050 \
+      --ordererTLSHostnameOverride orderer.example.com \
       --channelID "${CHANNEL_NAME}" \
       --name "${CC_NAME}" \
       --version "${CC_VERSION}" \
@@ -237,6 +241,7 @@ deployCC() {
   info "Committing chaincode to channel…"
   peer lifecycle chaincode commit \
     -o localhost:7050 \
+    --ordererTLSHostnameOverride orderer.example.com \
     --channelID "${CHANNEL_NAME}" \
     --name "${CC_NAME}" \
     --version "${CC_VERSION}" \
@@ -253,6 +258,7 @@ deployCC() {
   setGlobalsPeer0Org1
   peer chaincode invoke \
     -o localhost:7050 \
+    --ordererTLSHostnameOverride orderer.example.com \
     -C "${CHANNEL_NAME}" \
     -n "${CC_NAME}" \
     --tls --cafile "${ORDERER_CA}" \

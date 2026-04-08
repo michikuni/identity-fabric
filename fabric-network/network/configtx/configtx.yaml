@@ -21,7 +21,7 @@ Organizations:
   - &Org1
     Name: Org1MSP
     ID: Org1MSP
-    MSPDir: ../../organizations/ordererOrganizations/example.com/msp
+    MSPDir: ../../organizations/peerOrganizations/org1.example.com/msp
     Policies:
       Readers:
         Type: Signature
@@ -42,7 +42,7 @@ Organizations:
   - &Org2
     Name: Org2MSP
     ID: Org2MSP
-    MSPDir: ../../organizations/ordererOrganizations/example.com/msp
+    MSPDir: ../../organizations/peerOrganizations/org2.example.com/msp
     Policies:
       Readers:
         Type: Signature
