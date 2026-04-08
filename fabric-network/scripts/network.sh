@@ -22,6 +22,7 @@ VERBOSE=false
 ORDERER_CA="${ROOT_DIR}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt"
 ORG1_PEER0_CA="${ROOT_DIR}/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt"
 ORG2_PEER0_CA="${ROOT_DIR}/organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt"
+ORDERER_ADMIN_TLS_CERT="${ROOT_DIR}/organizations/ordererOrganizations/example.com/users/Admin@example.com/tls/signcerts/cert.pem"
 
 # configtxgen reads configtx.yaml from here
 export FABRIC_CFG_PATH="${ROOT_DIR}/network/configtx"
@@ -51,7 +52,7 @@ ensureCoreYaml() {
 
 # ── Prerequisite check ────────────────────────────────────────────────────────
 checkPrereqs() {
-  for tool in docker docker-compose cryptogen configtxgen peer; do
+  for tool in docker docker-compose cryptogen configtxgen peer osnadmin; do
     command -v "$tool" &>/dev/null || error "Missing prerequisite: $tool"
   done
   info "All prerequisites found."
@@ -76,10 +77,10 @@ generateChannelArtifacts() {
     -channelID system-channel \
     -outputBlock "${ROOT_DIR}/network/channel-artifacts/genesis.block"
 
-  info "Generating channel creation transaction…"
+  info "Generating channel genesis block for ${CHANNEL_NAME}…"
   configtxgen \
     -profile TwoOrgsChannel \
-    -outputCreateChannelTx "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.tx" \
+    -outputBlock "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.block" \
     -channelID "${CHANNEL_NAME}"
 
   info "Generating anchor peer updates…"
@@ -90,6 +91,14 @@ generateChannelArtifacts() {
       -channelID "${CHANNEL_NAME}" \
       -asOrg "${org}"
   done
+}
+
+getOrdererAdminTLSKey() {
+  local key_dir="${ROOT_DIR}/organizations/ordererOrganizations/example.com/users/Admin@example.com/tls/keystore"
+  local key_file
+  key_file="$(ls "${key_dir}"/*_sk 2>/dev/null | head -n 1 || true)"
+  [[ -n "${key_file}" ]] || error "Orderer admin TLS private key not found in ${key_dir}"
+  echo "${key_file}"
 }
 
 # ── Docker compose ────────────────────────────────────────────────────────────
@@ -151,15 +160,21 @@ createChannel() {
   ensureCoreYaml
   info "Creating channel ${CHANNEL_NAME}…"
 
+  local orderer_admin_tls_key
+  orderer_admin_tls_key="$(getOrdererAdminTLSKey)"
+
+  # With Channel Participation API enabled (no system channel), use osnadmin
+  # to join the application channel block on the orderer instead of
+  # 'peer channel create'.
+  osnadmin channel join \
+    --channelID "${CHANNEL_NAME}" \
+    --config-block "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.block" \
+    -o localhost:7053 \
+    --ca-file "${ORDERER_CA}" \
+    --client-cert "${ORDERER_ADMIN_TLS_CERT}" \
+    --client-key "${orderer_admin_tls_key}"
+
   setGlobalsPeer0Org1
-  peer channel create \
-    -o localhost:7050 \
-    --ordererTLSHostnameOverride orderer.example.com \
-    -c "${CHANNEL_NAME}" \
-    -f "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.tx" \
-    --outputBlock "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.block" \
-    --tls \
-    --cafile "${ORDERER_CA}"
 
   info "Joining peers to ${CHANNEL_NAME}…"
   for setGlobals in setGlobalsPeer0Org1 setGlobalsPeer0Org2; do
