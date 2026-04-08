@@ -158,3 +158,19 @@ Profiles:
         - *Org1
         - *Org2
       Capabilities: *ApplicationCapabilities
+
+  # Application channel genesis block profile for channel participation API
+  # (system channel is disabled, so orderer must join with a full channel block).
+  TwoOrgsApplicationGenesis:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+      Capabilities: *OrdererCapabilities
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *Org1
+        - *Org2
+      Capabilities: *ApplicationCapabilities

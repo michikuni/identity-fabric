@@ -79,7 +79,7 @@ generateChannelArtifacts() {
 
   info "Generating channel genesis block for ${CHANNEL_NAME}…"
   configtxgen \
-    -profile TwoOrgsChannel \
+    -profile TwoOrgsApplicationGenesis \
     -outputBlock "${ROOT_DIR}/network/channel-artifacts/${CHANNEL_NAME}.block" \
     -channelID "${CHANNEL_NAME}"
 

@@ -10,6 +10,8 @@ volumes:
   peer1.org1.example.com:
   peer0.org2.example.com:
   peer1.org2.example.com:
+  ca.org1.example.com:
+  ca.org2.example.com:
 
 services:
 
@@ -27,7 +29,7 @@ services:
       - "7054:7054"
     command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
     volumes:
-      - ./organizations/org1/ca:/etc/hyperledger/fabric-ca-server
+      - ca.org1.example.com:/etc/hyperledger/fabric-ca-server
     networks:
       - fabric_network
 
@@ -43,7 +45,7 @@ services:
       - "8054:8054"
     command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
     volumes:
-      - ./organizations/org2/ca:/etc/hyperledger/fabric-ca-server
+      - ca.org2.example.com:/etc/hyperledger/fabric-ca-server
     networks:
       - fabric_network
 
