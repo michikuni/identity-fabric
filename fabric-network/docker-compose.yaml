@@ -78,8 +78,8 @@ services:
     command: orderer
     volumes:
       - ./network/channel-artifacts/genesis.block:/var/hyperledger/orderer/orderer.genesis.block
-      - ./organizations/org1/orderer/msp:/var/hyperledger/orderer/msp
-      - ./organizations/org1/orderer/tls:/var/hyperledger/orderer/tls
+      - ./organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/orderer/msp
+      - ./organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls:/var/hyperledger/orderer/tls
       - orderer.example.com:/var/hyperledger/production/orderer
     ports:
       - "7050:7050"
@@ -115,8 +115,8 @@ services:
       - CORE_METRICS_PROVIDER=prometheus
     volumes:
       - /var/run/docker.sock:/host/var/run/docker.sock
-      - ./organizations/org1/peers/peer0/msp:/etc/hyperledger/fabric/msp
-      - ./organizations/org1/peers/peer0/tls:/etc/hyperledger/fabric/tls
+      - ./organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp:/etc/hyperledger/fabric/msp
+      - ./organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls:/etc/hyperledger/fabric/tls
       - peer0.org1.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -150,8 +150,8 @@ services:
       - CORE_OPERATIONS_LISTENADDRESS=peer1.org1.example.com:9445
     volumes:
       - /var/run/docker.sock:/host/var/run/docker.sock
-      - ./organizations/org1/peers/peer1/msp:/etc/hyperledger/fabric/msp
-      - ./organizations/org1/peers/peer1/tls:/etc/hyperledger/fabric/tls
+      - ./organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/msp:/etc/hyperledger/fabric/msp
+      - ./organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls:/etc/hyperledger/fabric/tls
       - peer1.org1.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -187,8 +187,8 @@ services:
       - CORE_OPERATIONS_LISTENADDRESS=peer0.org2.example.com:9446
     volumes:
       - /var/run/docker.sock:/host/var/run/docker.sock
-      - ./organizations/org2/peers/peer0/msp:/etc/hyperledger/fabric/msp
-      - ./organizations/org2/peers/peer0/tls:/etc/hyperledger/fabric/tls
+      - ./organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/msp:/etc/hyperledger/fabric/msp
+      - ./organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls:/etc/hyperledger/fabric/tls
       - peer0.org2.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
@@ -222,8 +222,8 @@ services:
       - CORE_OPERATIONS_LISTENADDRESS=peer1.org2.example.com:9447
     volumes:
       - /var/run/docker.sock:/host/var/run/docker.sock
-      - ./organizations/org2/peers/peer1/msp:/etc/hyperledger/fabric/msp
-      - ./organizations/org2/peers/peer1/tls:/etc/hyperledger/fabric/tls
+      - ./organizations/peerOrganizations/org2.example.com/peers/peer1.org2.example.com/msp:/etc/hyperledger/fabric/msp
+      - ./organizations/peerOrganizations/org2.example.com/peers/peer1.org2.example.com/tls:/etc/hyperledger/fabric/tls
       - peer1.org2.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
