@@ -1,1 +1,1 @@
-rootProject.name = "fabric-spring-backend"
+rootProject.name = "identity"
