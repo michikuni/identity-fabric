@@ -1,58 +1,228 @@
-# Fabric Spring Boot Backend
+# Fabric Spring Backend
 
-A **Spring Boot 3 + Kotlin + Gradle** REST API that wraps the Hyperledger Fabric
-`asset-transfer` chaincode, using the official **Fabric Gateway SDK 1.4**.
+Module này là một project Spring Boot/Kotlin đang ở trạng thái hybrid: nó vừa chứa ứng dụng identity/HR sử dụng MySQL + JWT, vừa còn giữ lại một cụm code prototype kết nối Hyperledger Fabric.
 
----
+README này mô tả theo code hiện có trong module, không theo README cũ.
 
-## Prerequisites
+## Tổng quan
 
-| Tool | Version |
-|---|---|
-| JDK | 17+ |
-| Gradle | 8.x (wrapper included) |
-| Docker | 24+ |
-| Fabric network | Running (`fabric-network/scripts/network.sh up && deployCC`) |
+Trong `src/main/kotlin` hiện có 2 nhóm package lớn:
 
----
+- `com.mpcorp.identity`
+  - Ứng dụng chính cho authentication, employee, profile, contract, payroll
+  - Dùng Spring Security, JPA, MySQL, JWT
+- `org.fabric.api`
+  - prototype API kết nối Fabric Gateway
+  - expose CRUD cho chaincode `asset-transfer`
 
-## Project Structure
+Nói ngắn gọn: Đây không phải chỉ là Fabric wrapper, mà là một backend gồm 2 hướng code đang cùng tồn tại.
 
-```
+## Công nghệ
+
+- Kotlin `2.2.21`
+- Spring Boot `4.0.5`
+- Spring Web
+- Spring Security
+- Spring Data JPA
+- MySQL Connector/J
+- JWT (`jjwt`)
+- Gradle Kotlin DSL
+
+## Cấu trúc thư mục chính
+
+```text
 fabric-spring-backend/
-├── build.gradle.kts                  # Gradle Kotlin DSL build file
-├── settings.gradle.kts
-├── Dockerfile
-├── docker-compose.yml                # Attach to existing Fabric network
-└── src/
-    ├── main/
-    │   ├── kotlin/org/fabric/api/
-    │   │   ├── FabricApplication.kt          # Entry point
-    │   │   ├── config/
-    │   │   │   ├── FabricProperties.kt        # Typed config binding
-    │   │   │   ├── FabricGatewayConfig.kt     # Gateway bean setup (gRPC + TLS)
-    │   │   │   └── OpenApiConfig.kt           # Swagger metadata
-    │   │   ├── controller/
-    │   │   │   └── AssetController.kt         # REST endpoints
-    │   │   ├── service/
-    │   │   │   └── AssetService.kt            # Fabric Gateway calls
-    │   │   ├── model/
-    │   │   │   └── AssetModels.kt             # DTOs, request/response models
-    │   │   └── exception/
-    │   │       └── Exceptions.kt              # Domain exceptions + global handler
-    │   └── resources/
-    │       └── application.yml
-    └── test/
-        └── kotlin/org/fabric/api/
-            └── service/
-                └── AssetServiceTest.kt        # Unit tests (MockK)
+|-- build.gradle.kts
+|-- settings.gradle.kts
+|-- Dockerfile
+|-- docker-compose.yml
+`-- src/
+    |-- main/kotlin/
+    |   |-- com/mpcorp/identity/
+    |   `-- org/fabric/api/
+    `-- main/resources/
+        |-- application.properties
+        `-- application.yml
 ```
 
----
+## Phần `com.mpcorp.identity`
 
-## Quick Start
+Đây là phần backend nghiệp vụ chính khi đọc code hiện tại.
 
-### 1. Start the Fabric network first
+### Kiến trúc mã nguồn
+
+- `presentation`
+  - API contract
+  - controller
+  - request/response
+  - mapper
+- `application`
+  - use case
+  - dto
+  - mapper
+  - support/reference model
+- `domain`
+  - entity
+  - repository abstraction
+- `infrastructures`
+  - JPA entity
+  - JPA repository
+  - repository implementation
+  - security
+  - config
+- `common`
+  - exception
+  - validation
+  - constant
+  - utility
+
+### Bảo mật
+
+`SecurityConfig` cho phép anonymous với:
+
+- `/api/v1/auth/**`
+
+Tất cả API còn lại yêu cầu JWT Bearer token.
+
+### API chính
+
+#### Auth
+
+- `POST /api/v1/auth/sign-up`
+- `POST /api/v1/auth/sign-in`
+
+Ví dụ `sign-up`:
+
+```json
+{
+  "email": "user@example.com",
+  "phone": "0123456789",
+  "password": "secret"
+}
+```
+
+Ví dụ `sign-in`:
+
+```json
+{
+  "username": "0123456789",
+  "password": "secret"
+}
+```
+
+#### Employee
+
+- `POST /api/v1/employee`
+- `GET /api/v1/employee`
+- `PUT /api/v1/employee`
+- `DELETE /api/v1/employee`
+
+Resource employee được thao tác theo user hiện tại, không dùng ID trên URL.
+
+#### Profile
+
+- `POST /api/v1/profile`
+- `GET /api/v1/profile`
+- `PUT /api/v1/profile`
+- `DELETE /api/v1/profile`
+
+#### Contract
+
+- `POST /api/v1/contracts`
+- `GET /api/v1/contracts`
+- `PUT /api/v1/contracts`
+- `DELETE /api/v1/contracts`
+
+#### Payroll
+
+- `POST /api/v1/payroll`
+- `GET /api/v1/payroll`
+- `PUT /api/v1/payroll`
+- `DELETE /api/v1/payroll`
+
+## Phần `org.fabric.api`
+
+Đây là cụm code prototype để kết nối mạng Fabric ở module `../fabric-network`.
+
+### Thành phần chính
+
+- `FabricApplication.kt`
+- `config/FabricGatewayConfig.kt`
+- `config/FabricProperties.kt`
+- `controller/AssetController.kt`
+- `service/AssetService.kt`
+- `websocket/*`
+
+### Chức năng
+
+Prototype này gọi chaincode `asset-transfer` trên channel `mychannel` thông qua Fabric Gateway và expose các API:
+
+- `POST /api/v1/assets/init`
+- `GET /api/v1/assets`
+- `GET /api/v1/assets/{id}`
+- `GET /api/v1/assets/{id}/exists`
+- `POST /api/v1/assets`
+- `PUT /api/v1/assets/{id}`
+- `DELETE /api/v1/assets/{id}`
+- `PATCH /api/v1/assets/{id}/transfer`
+
+Ngoài REST API, nó còn publish WebSocket event khi có transaction commit.
+
+## Cấu hình
+
+Module này đang có 2 bộ cấu hình song song:
+
+### `application.properties`
+
+Phục vụ identity app:
+
+- `spring.datasource.url`
+- `spring.datasource.username`
+- `spring.datasource.password`
+- `jwt.secret`
+- `jwt.expiration`
+
+Database mặc định:
+
+```properties
+spring.datasource.url=jdbc:mysql://localhost:3306/identity_db?createDatabaseIfNotExist=true
+spring.datasource.username=root
+spring.datasource.password=password
+```
+
+### `application.yml`
+
+Phục vụ prototype Fabric:
+
+- `fabric.msp-id`
+- `fabric.channel-name`
+- `fabric.chaincode-name`
+- `fabric.peer.endpoint`
+- `fabric.peer.tls-cert-path`
+- `fabric.gateway.cert-path`
+- `fabric.gateway.key-path`
+
+Mặc định nó đang trỏ tới crypto material trong `../fabric-network/organizations/...`
+
+## Cách chạy local
+
+### Chạy identity app
+
+Cần có MySQL local theo thông số trong `application.properties`, sau đó:
+
+```bash
+./gradlew bootRun
+```
+
+Nếu dùng Windows:
+
+```bash
+gradlew.bat bootRun
+```
+
+### Chạy phần Fabric prototype
+
+Trước tiên cần dùng Fabric network:
 
 ```bash
 cd ../fabric-network
@@ -61,145 +231,67 @@ cd ../fabric-network
 ./scripts/network.sh deployCC
 ```
 
-### 2. Configure paths
+Sau đó quay lại backend và đảm bảo các đường dẫn crypto hợp lệ qua biến môi trường hoặc `application.yml`.
 
-Edit `src/main/resources/application.yml` or set environment variables:
+## Docker
 
-```bash
-export FABRIC_TLS_CERT_PATH=../fabric-network/organizations/org1/peers/peer0/tls/ca.crt
-export FABRIC_CERT_PATH=../fabric-network/organizations/org1/users/User1@org1.example.com/msp/signcerts/cert.pem
-export FABRIC_KEY_PATH=../fabric-network/organizations/org1/users/User1@org1.example.com/msp/keystore/
-```
+`docker-compose.yml` của module này đang thiết kế theo hướng:
 
-### 3. Run locally
+- attach vào network Docker `fabric_network`
+- mount crypto material từ `../fabric-network/organizations/org1`
+- set env cho Fabric Gateway
 
-```bash
-./gradlew bootRun
-```
+Nó phù hợp hơn với phần `org.fabric.api`.
 
-### 4. Run with Docker Compose (alongside Fabric network)
+Lưu ý: File này hiện không định nghĩa MySQL container cho `com.mpcorp.identity`, nên nếu muốn chạy identity app bằng Docker, cần bổ sung database service hoặc dùng MySQL bên ngoài.
 
-```bash
-docker-compose -f ../fabric-network/docker-compose.yaml -f docker-compose.yml up -d
-```
+## Điểm cần lưu ý khi làm việc với module này
 
----
+### 1. Có 2 class `@SpringBootApplication`
 
-## API Endpoints
+Trong code hiện có:
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/v1/assets/init` | Seed ledger with 6 sample assets |
-| `GET` | `/api/v1/assets` | Get all assets |
-| `GET` | `/api/v1/assets/{id}` | Get asset by ID |
-| `GET` | `/api/v1/assets/{id}/exists` | Check if asset exists |
-| `POST` | `/api/v1/assets` | Create new asset |
-| `PUT` | `/api/v1/assets/{id}` | Update asset |
-| `DELETE` | `/api/v1/assets/{id}` | Delete asset |
-| `PATCH` | `/api/v1/assets/{id}/transfer` | Transfer ownership |
+- `com.mpcorp.identity.IdentityApplication`
+- `org.fabric.api.FabricApplication`
 
-### Swagger UI
+Đây là dấu hiệu cho thấy project đang chứa 2 luồng app trong cùng một module. Trước khi đóng gọi hoặc tách deployment, nên quyết định rõ entry point nào là chính.
 
-```
-http://localhost:8080/swagger-ui.html
-```
+### 2. README cũ không còn đúng với hiện trạng code
 
----
+README cũ mô tả backend như một Fabric wrapper thuần, nhưng code thực tế đã mở rộng thành identity backend có JPA, security và use-case architecture.
 
-## Example Requests
+### 3. Docker và config hiện đang nghiêng về phần Fabric
 
-```bash
-# Initialize ledger
-curl -X POST http://localhost:8080/api/v1/assets/init
+Trong khi phần business chính `com.mpcorp.identity` lại cần MySQL. Vì vậy nếu onboard người mới, nên nói rõ backend đang ở trạng thái chuyển tiếp.
 
-# Get all assets
-curl http://localhost:8080/api/v1/assets
+## Lệnh hữu ích
 
-# Create an asset
-curl -X POST http://localhost:8080/api/v1/assets \
-  -H "Content-Type: application/json" \
-  -d '{"id":"asset7","color":"purple","size":10,"owner":"Alice","appraisedValue":900}'
-
-# Transfer an asset
-curl -X PATCH http://localhost:8080/api/v1/assets/asset1/transfer \
-  -H "Content-Type: application/json" \
-  -d '{"newOwner":"Bob"}'
-
-# Delete an asset
-curl -X DELETE http://localhost:8080/api/v1/assets/asset7
-```
-
----
-
-## Running Tests
+Chạy test:
 
 ```bash
 ./gradlew test
 ```
 
----
+Build jar:
 
-## WebSocket (STOMP)
-
-After every Fabric transaction commits, the backend pushes a real-time event over WebSocket.
-
-### Connect
-
-```javascript
-// Using @stomp/stompjs
-const client = new Client({ brokerURL: 'ws://localhost:8080/ws/fabric' });
-client.activate();
+```bash
+./gradlew bootJar
 ```
 
-### Subscribe to topics
+## Gợi ý đọc code
 
-| Topic | Description |
-|---|---|
-| `/topic/assets` | All asset events (global feed) |
-| `/topic/assets/{id}` | Events for a specific asset ID |
+Nếu muốn hiểu nhanh phần identity:
 
-### Event payload shape
+- `src/main/kotlin/com/mpcorp/identity/IdentityApplication.kt`
+- `src/main/kotlin/com/mpcorp/identity/infrastructures/config/SecurityConfig.kt`
+- `src/main/kotlin/com/mpcorp/identity/presentation/controller/AuthController.kt`
+- `src/main/kotlin/com/mpcorp/identity/presentation/controller/EmployeeController.kt`
+- `src/main/kotlin/com/mpcorp/identity/application/usecase/`
 
-```json
-{
-  "type": "ASSET_CREATED",
-  "assetId": "asset7",
-  "payload": { "ID": "asset7", "Color": "purple", "Size": 10, "Owner": "Alice", "AppraisedValue": 900 },
-  "timestamp": "2026-03-29T10:00:00Z"
-}
-```
+Nếu muốn hiểu nhanh phần Fabric prototype:
 
-### Event types
+- `src/main/kotlin/org/fabric/api/FabricApplication.kt`
+- `src/main/kotlin/org/fabric/api/config/FabricGatewayConfig.kt`
+- `src/main/kotlin/org/fabric/api/controller/AssetController.kt`
+- `src/main/kotlin/org/fabric/api/service/AssetService.kt`
 
-| Type | Trigger |
-|---|---|
-| `INIT_LEDGER` | `POST /api/v1/assets/init` |
-| `ASSET_CREATED` | `POST /api/v1/assets` |
-| `ASSET_UPDATED` | `PUT /api/v1/assets/{id}` |
-| `ASSET_DELETED` | `DELETE /api/v1/assets/{id}` |
-| `ASSET_TRANSFERRED` | `PATCH /api/v1/assets/{id}/transfer` |
-
-### Quick browser test
-
-```javascript
-client.onConnect = () => {
-  client.subscribe('/topic/assets', (msg) => {
-    console.log(JSON.parse(msg.body));
-  });
-};
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Language | Kotlin 1.9 |
-| Framework | Spring Boot 3.2 |
-| Build | Gradle 8 (Kotlin DSL) |
-| Blockchain SDK | Fabric Gateway 1.4 + gRPC/Netty |
-| Real-time | Spring WebSocket + STOMP |
-| API docs | SpringDoc OpenAPI (Swagger UI) |
-| Validation | Jakarta Validation |
-| Testing | JUnit 5 + MockK |
