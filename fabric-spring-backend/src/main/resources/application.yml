@@ -17,7 +17,7 @@ server:
 fabric:
   msp-id: Org1MSP
   channel-name: mychannel
-  chaincode-name: asset-transfer
+  chaincode-name: identity-ledger
   peer:
     endpoint: localhost:7051
     # Absolute path in WSL — adjust if your home dir is different

@@ -8,12 +8,14 @@ import com.mpcorp.identity.application.support.toLongValue
 import com.mpcorp.identity.domain.entity.ProfileEntity
 import com.mpcorp.identity.domain.repository.EmployeeRepository
 import com.mpcorp.identity.domain.repository.ProfileRepository
+import com.mpcorp.identity.infrastructures.fabric.IdentityLedgerService
 import org.springframework.stereotype.Service
 
 @Service
 class UpdateProfileUseCase(
     private val profileRepository: ProfileRepository,
     private val employeeRepository: EmployeeRepository,
+    private val identityLedgerService: IdentityLedgerService,
 ) {
     fun execute(command: UpdateProfileCommand): GetProfileResponseCommand {
         val employee = command.employee.resolveEmployee(employeeRepository)
@@ -43,6 +45,9 @@ class UpdateProfileUseCase(
             certificate = command.certificate,
             skillSet = command.skillSet,
         )
-        return profileRepository.updateProfileById(profileEntity).toGetProfileResponseCommand()
+        val saved = profileRepository.updateProfileById(profileEntity)
+        // Fire-and-forget: write audit record to blockchain
+        identityLedgerService.upsertProfileRecord(saved, action = "UPDATE")
+        return saved.toGetProfileResponseCommand()
     }
 }

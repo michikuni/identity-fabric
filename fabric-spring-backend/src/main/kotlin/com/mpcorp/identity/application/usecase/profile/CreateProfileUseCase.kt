@@ -7,12 +7,14 @@ import com.mpcorp.identity.application.support.resolveEmployee
 import com.mpcorp.identity.domain.entity.ProfileEntity
 import com.mpcorp.identity.domain.repository.EmployeeRepository
 import com.mpcorp.identity.domain.repository.ProfileRepository
+import com.mpcorp.identity.infrastructures.fabric.IdentityLedgerService
 import org.springframework.stereotype.Service
 
 @Service
 class CreateProfileUseCase(
     private val profileRepository: ProfileRepository,
     private val employeeRepository: EmployeeRepository,
+    private val identityLedgerService: IdentityLedgerService,
 ) {
     fun execute(command: CreateProfileCommand): GetProfileResponseCommand {
         val employee = command.employee.resolveEmployee(employeeRepository)
@@ -41,6 +43,9 @@ class CreateProfileUseCase(
             certificate = command.certificate,
             skillSet = command.skillSet,
         )
-        return profileRepository.createProfileById(profileEntity).toGetProfileResponseCommand()
+        val saved = profileRepository.createProfileById(profileEntity)
+        // Fire-and-forget: write audit record to blockchain (does not block response)
+        identityLedgerService.upsertProfileRecord(saved, action = "CREATE")
+        return saved.toGetProfileResponseCommand()
     }
 }

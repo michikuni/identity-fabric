@@ -8,12 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 CHANNEL_NAME="mychannel"
-CC_NAME="asset-transfer"
+CC_NAME="identity-ledger"
 CC_SRC_PATH="${ROOT_DIR}/chaincode/asset-transfer"
 CC_RUNTIME_LANGUAGE="java"
 CC_VERSION="1.0"
 CC_SEQUENCE="1"
-CC_INIT_FCN="InitLedger"
 DELAY=3
 MAX_RETRY=5
 VERBOSE=false
@@ -248,23 +247,7 @@ deployCC() {
     --peerAddresses localhost:9051 \
     --tlsRootCertFiles "${ORG2_PEER0_CA}"
 
-  sleep 3
-
-  info "Invoking ${CC_INIT_FCN}…"
-  setGlobalsPeer0Org1
-  peer chaincode invoke \
-    -o localhost:7050 \
-    --ordererTLSHostnameOverride orderer.example.com \
-    -C "${CHANNEL_NAME}" \
-    -n "${CC_NAME}" \
-    --tls --cafile "${ORDERER_CA}" \
-    --peerAddresses localhost:7051 \
-    --tlsRootCertFiles "${ORG1_PEER0_CA}" \
-    --peerAddresses localhost:9051 \
-    --tlsRootCertFiles "${ORG2_PEER0_CA}" \
-    -c "{\"function\":\"${CC_INIT_FCN}\",\"Args\":[]}"
-
-  info "Chaincode ${CC_NAME} deployed and initialized successfully."
+  info "Chaincode ${CC_NAME} deployed successfully. No InitLedger needed — records are written by the backend."
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
