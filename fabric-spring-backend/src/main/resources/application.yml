@@ -23,7 +23,7 @@ fabric:
     # Absolute path in WSL — adjust if your home dir is different
     tls-cert-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
   gateway:
-    cert-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/cert.pem
+    cert-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem
     key-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore/
 
 # Swagger UI
