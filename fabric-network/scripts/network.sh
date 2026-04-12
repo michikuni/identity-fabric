@@ -188,7 +188,7 @@ deployCC() {
   ensureCoreYaml
   info "Building Java chaincode…"
   pushd "${CC_SRC_PATH}" >/dev/null
-  mvn clean package -DskipTests -q
+  mvn clean package -Dmaven.test.skip=true -q
   popd >/dev/null
 
   info "Packaging chaincode…"
