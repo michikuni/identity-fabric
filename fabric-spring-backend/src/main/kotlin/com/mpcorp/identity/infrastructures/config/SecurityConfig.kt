@@ -20,7 +20,11 @@ class SecurityConfig {
             .csrf { it.disable() }
             .authorizeHttpRequests { auth ->
                 auth.requestMatchers(
-                    "/api/v1/auth/**"
+                    "/api/v1/auth/**",
+                    "/api/v1/assets/**",   // blockchain endpoints — public for Postman testing
+                    "/swagger-ui/**",
+                    "/swagger-ui.html",
+                    "/api-docs/**",
                 ).permitAll()
                     .anyRequest().authenticated()
             }.sessionManagement { session ->

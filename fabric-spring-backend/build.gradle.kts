@@ -40,6 +40,9 @@ dependencies {
 	runtimeOnly("com.mysql:mysql-connector-j")
 	compileOnly("org.projectlombok:lombok")
 	annotationProcessor("org.projectlombok:lombok")
+	// Hyperledger Fabric Gateway SDK
+	implementation("org.hyperledger.fabric:fabric-gateway:1.7.0")
+	implementation("io.grpc:grpc-netty-shaded:1.68.1")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-security-test")

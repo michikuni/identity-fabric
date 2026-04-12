@@ -12,10 +12,11 @@ fabric:
   chaincode-name: asset-transfer
   peer:
     endpoint: localhost:7051
-    tls-cert-path: ${FABRIC_TLS_CERT_PATH:../fabric-network/organizations/org1/peers/peer0/tls/ca.crt}
+    # Absolute path in WSL — adjust if your home dir is different
+    tls-cert-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
   gateway:
-    cert-path: ${FABRIC_CERT_PATH:../fabric-network/organizations/org1/users/User1@org1.example.com/msp/signcerts/cert.pem}
-    key-path: ${FABRIC_KEY_PATH:../fabric-network/organizations/org1/users/User1@org1.example.com/msp/keystore/}
+    cert-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/cert.pem
+    key-path: /home/phuongdang/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore/
 
 # Swagger UI
 springdoc:
@@ -29,3 +30,4 @@ logging:
   level:
     org.fabric: DEBUG
     org.hyperledger: INFO
+    com.mpcorp: DEBUG
