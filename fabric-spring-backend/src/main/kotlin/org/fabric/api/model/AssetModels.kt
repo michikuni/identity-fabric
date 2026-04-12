@@ -9,23 +9,23 @@ import jakarta.validation.constraints.Size
 @Schema(description = "Asset stored on the Fabric ledger")
 data class Asset(
     @Schema(description = "Unique asset identifier", example = "asset1")
-    @JsonProperty("ID")
+    @JsonProperty("assetId")
     val id: String,
 
     @Schema(description = "Asset color", example = "blue")
-    @JsonProperty("Color")
+    @JsonProperty("color")
     val color: String,
 
     @Schema(description = "Asset size", example = "5")
-    @JsonProperty("Size")
+    @JsonProperty("size")
     val size: Int,
 
     @Schema(description = "Current owner", example = "Tomoko")
-    @JsonProperty("Owner")
+    @JsonProperty("owner")
     val owner: String,
 
     @Schema(description = "Appraised value", example = "300")
-    @JsonProperty("AppraisedValue")
+    @JsonProperty("appraisedValue")
     val appraisedValue: Int
 )
 

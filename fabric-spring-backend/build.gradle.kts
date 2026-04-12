@@ -6,6 +6,12 @@ plugins {
 	id("io.spring.dependency-management") version "1.1.7"
 }
 
+// Specify which @SpringBootApplication to use as entry point
+// (FabricApplication handles Fabric Gateway + WebSocket + OpenAPI)
+springBoot {
+	mainClass = "org.fabric.api.FabricApplicationKt"
+}
+
 group = "com.mpcorp"
 version = "0.0.1-SNAPSHOT"
 description = "Self-Sovereign Identity Application"
@@ -43,6 +49,12 @@ dependencies {
 	// Hyperledger Fabric Gateway SDK
 	implementation("org.hyperledger.fabric:fabric-gateway:1.7.0")
 	implementation("io.grpc:grpc-netty-shaded:1.68.1")
+	// Swagger / SpringDoc OpenAPI  (used by org.fabric.api.config.OpenApiConfig)
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6")
+	// WebSocket / STOMP  (used by WebSocketConfig & FabricEventPublisher)
+	implementation("org.springframework.boot:spring-boot-starter-websocket")
+	// Kotlin Logging  (used by mu.KotlinLogging)
+	implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-security-test")
