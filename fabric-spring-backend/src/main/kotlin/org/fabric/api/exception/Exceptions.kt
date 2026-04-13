@@ -22,7 +22,7 @@ class FabricTransactionException(message: String, cause: Throwable? = null) :
 // ── Global handler ────────────────────────────────────────────────────────────
 
 @RestControllerAdvice
-class GlobalExceptionHandler {
+class FabricExceptionHandler {
 
     @ExceptionHandler(IdentityRecordNotFoundException::class)
     fun handleNotFound(ex: IdentityRecordNotFoundException): ResponseEntity<ApiResponse<Nothing>> {
