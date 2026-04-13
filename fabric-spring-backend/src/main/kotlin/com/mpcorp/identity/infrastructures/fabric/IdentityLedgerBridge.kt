@@ -14,19 +14,35 @@ import java.security.MessageDigest
 /**
  * FabricLedgerBridge — cầu nối giữa com.mpcorp.identity và org.fabric.api.
  *
- * Thay thế IdentityLedgerService cũ (cái gọi Gateway trực tiếp).
- * Giờ delegate toàn bộ việc ghi blockchain sang [IdentityLedgerService] của org.fabric.api.
+ * ## Chiến lược: Fire-and-Forget + Outbox Retry
  *
- * Strategy: Fire-and-forget (async).
- *   - MySQL là source of truth.
- *   - Blockchain ghi audit trail + hash proof.
- *   - Nếu Fabric lỗi → log warning, KHÔNG rollback MySQL.
+ * MySQL là source of truth — luôn commit trước, không bao giờ rollback vì Fabric.
  *
- * Được inject vào các UseCase của com.mpcorp.identity (CreateProfileUseCase, UpdateProfileUseCase, ...).
+ * Luồng ghi blockchain:
+ *   1. UseCase (CreateProfileUseCase, ...) lưu vào MySQL → commit
+ *   2. UseCase gọi FabricLedgerBridge async (@Async)
+ *   3. Bridge tính SHA-256 hash + tạo partial snapshot (keyFields)
+ *   4. Gọi [IdentityLedgerService.upsertRecord] → submit transaction lên Fabric
+ *   5a. Thành công → log info, kết thúc
+ *   5b. Thất bại  → [FabricOutboxService.enqueue] lưu vào bảng fabric_outbox_events
+ *   6. [FabricRetryScheduler] định kỳ retry với exponential backoff
+ *   7. Sau MAX_RETRIES lần thất bại → chuyển DEAD_LETTER, cần xử lý thủ công
+ *
+ * ## Hash Strategy (SHA-256)
+ *
+ * fullJson = serialize toàn bộ entity → sha256(fullJson) = dataHash
+ * dataHash được lưu on-chain, fullJson KHÔNG được gửi lên chain.
+ * Để verify: tính lại sha256 của MySQL record, so sánh với on-chain dataHash.
+ *
+ * ## keyFields (Partial Snapshot)
+ *
+ * Chỉ các trường không nhạy cảm, không có PII (số CMND, số tài khoản, lương...).
+ * Dùng cho audit trail và truy vết nhanh trên chain mà không cần đọc MySQL.
  */
 @Service
 class FabricLedgerBridge(
     private val ledgerService: IdentityLedgerService,
+    private val outboxService: FabricOutboxService,
     private val objectMapper: ObjectMapper,
 ) {
 
@@ -40,21 +56,21 @@ class FabricLedgerBridge(
             log.warn("[FabricBridge] ProfileEntity missing employeeId, skip")
             return
         }
-        runCatching {
-            val keyFields = objectMapper.writeValueAsString(
-                mapOf(
-                    "name"           to profile.name,
-                    "gender"         to profile.gender,
-                    "educationLevel" to profile.educationLevel,
-                    "major"          to profile.major,
-                    "expYears"       to profile.expYears,
-                    "email"          to profile.email,
-                )
+        val keyFields = objectMapper.writeValueAsString(
+            mapOf(
+                "name"           to profile.name,
+                "gender"         to profile.gender,
+                "educationLevel" to profile.educationLevel,
+                "major"          to profile.major,
+                "expYears"       to profile.expYears,
+                "email"          to profile.email,
             )
-            val fullJson   = objectMapper.writeValueAsString(profile)
-            val dataHash   = sha256(fullJson)
-            val status     = if (action == "DELETE") "DELETED" else "ACTIVE"
+        )
+        val fullJson = objectMapper.writeValueAsString(profile)
+        val dataHash = sha256(fullJson)
+        val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
 
+        runCatching {
             ledgerService.upsertRecord(
                 UpsertIdentityRecordRequest(
                     employeeId = employeeId,
@@ -66,9 +82,19 @@ class FabricLedgerBridge(
                     updatedBy  = "system",
                 )
             )
-            log.info("[FabricBridge] PROFILE record written — employeeId=$employeeId action=$action")
+            log.info("[FabricBridge] PROFILE written — employeeId=$employeeId action=$action")
         }.onFailure { ex ->
-            log.warn("[FabricBridge] Failed to write PROFILE record for employeeId=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] PROFILE write failed, enqueuing for retry — employeeId=$employeeId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "PROFILE",
+                recordStatus = status,
+                keyFields    = keyFields,
+                dataHash     = dataHash,
+                action       = action,
+                updatedBy    = "system",
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 
@@ -78,7 +104,18 @@ class FabricLedgerBridge(
             ledgerService.deleteRecord(employeeId, "PROFILE", updatedBy = "system")
             log.info("[FabricBridge] PROFILE DELETE written — employeeId=$employeeId")
         }.onFailure { ex ->
-            log.warn("[FabricBridge] Failed to write PROFILE DELETE for employeeId=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] PROFILE DELETE failed — employeeId=$employeeId error=${ex.message}")
+            // DeleteRecord dùng chaincode DeleteRecord (soft delete) — cần enqueue với action DELETE
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "PROFILE",
+                recordStatus = "DELETED",
+                keyFields    = "{}",
+                dataHash     = "",
+                action       = "DELETE",
+                updatedBy    = "system",
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 
@@ -90,19 +127,19 @@ class FabricLedgerBridge(
             log.warn("[FabricBridge] ContractEntity missing employeeId, skip")
             return
         }
-        runCatching {
-            val keyFields = objectMapper.writeValueAsString(
-                mapOf(
-                    "typeContract"   to contract.typeContract,
-                    "startDate"      to contract.startDate?.toString(),
-                    "endDate"        to contract.endDate?.toString(),
-                    "contractExpire" to contract.contractExpire?.toString(),
-                )
+        val keyFields = objectMapper.writeValueAsString(
+            mapOf(
+                "typeContract"   to contract.typeContract,
+                "startDate"      to contract.startDate?.toString(),
+                "endDate"        to contract.endDate?.toString(),
+                "contractExpire" to contract.contractExpire?.toString(),
             )
-            val fullJson = objectMapper.writeValueAsString(contract)
-            val dataHash = sha256(fullJson)
-            val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
+        )
+        val fullJson = objectMapper.writeValueAsString(contract)
+        val dataHash = sha256(fullJson)
+        val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
 
+        runCatching {
             ledgerService.upsertRecord(
                 UpsertIdentityRecordRequest(
                     employeeId = employeeId,
@@ -114,9 +151,19 @@ class FabricLedgerBridge(
                     updatedBy  = "system",
                 )
             )
-            log.info("[FabricBridge] CONTRACT record written — employeeId=$employeeId action=$action")
+            log.info("[FabricBridge] CONTRACT written — employeeId=$employeeId action=$action")
         }.onFailure { ex ->
-            log.warn("[FabricBridge] Failed to write CONTRACT record for employeeId=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] CONTRACT write failed, enqueuing for retry — employeeId=$employeeId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "CONTRACT",
+                recordStatus = status,
+                keyFields    = keyFields,
+                dataHash     = dataHash,
+                action       = action,
+                updatedBy    = "system",
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 
@@ -126,7 +173,17 @@ class FabricLedgerBridge(
             ledgerService.deleteRecord(employeeId, "CONTRACT", updatedBy = "system")
             log.info("[FabricBridge] CONTRACT DELETE written — employeeId=$employeeId")
         }.onFailure { ex ->
-            log.warn("[FabricBridge] Failed to write CONTRACT DELETE for employeeId=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] CONTRACT DELETE failed — employeeId=$employeeId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "CONTRACT",
+                recordStatus = "DELETED",
+                keyFields    = "{}",
+                dataHash     = "",
+                action       = "DELETE",
+                updatedBy    = "system",
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 
@@ -138,21 +195,21 @@ class FabricLedgerBridge(
             log.warn("[FabricBridge] PayrollEntity missing employeeId, skip")
             return
         }
-        runCatching {
-            val keyFields = objectMapper.writeValueAsString(
-                mapOf(
-                    "salaryType"  to payroll.salaryType,
-                    "currency"    to payroll.currency,
-                    "totalIncome" to payroll.totalIncome,
-                    "payDay"      to payroll.payDay?.toString(),
-                    "bankName"    to payroll.bankName,
-                )
+        val keyFields = objectMapper.writeValueAsString(
+            mapOf(
+                "salaryType"  to payroll.salaryType,
+                "currency"    to payroll.currency,
+                "totalIncome" to payroll.totalIncome,
+                "payDay"      to payroll.payDay?.toString(),
+                "bankName"    to payroll.bankName,
+                // Không đưa số tài khoản, số lương chi tiết vào keyFields
             )
-            // Không hash số tài khoản và số lương cụ thể — chỉ hash toàn bộ object
-            val fullJson = objectMapper.writeValueAsString(payroll)
-            val dataHash = sha256(fullJson)
-            val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
+        )
+        val fullJson = objectMapper.writeValueAsString(payroll)
+        val dataHash = sha256(fullJson)
+        val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
 
+        runCatching {
             ledgerService.upsertRecord(
                 UpsertIdentityRecordRequest(
                     employeeId = employeeId,
@@ -164,9 +221,19 @@ class FabricLedgerBridge(
                     updatedBy  = "system",
                 )
             )
-            log.info("[FabricBridge] PAYROLL record written — employeeId=$employeeId action=$action")
+            log.info("[FabricBridge] PAYROLL written — employeeId=$employeeId action=$action")
         }.onFailure { ex ->
-            log.warn("[FabricBridge] Failed to write PAYROLL record for employeeId=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] PAYROLL write failed, enqueuing for retry — employeeId=$employeeId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "PAYROLL",
+                recordStatus = status,
+                keyFields    = keyFields,
+                dataHash     = dataHash,
+                action       = action,
+                updatedBy    = "system",
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 
@@ -176,7 +243,17 @@ class FabricLedgerBridge(
             ledgerService.deleteRecord(employeeId, "PAYROLL", updatedBy = "system")
             log.info("[FabricBridge] PAYROLL DELETE written — employeeId=$employeeId")
         }.onFailure { ex ->
-            log.warn("[FabricBridge] Failed to write PAYROLL DELETE for employeeId=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] PAYROLL DELETE failed — employeeId=$employeeId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "PAYROLL",
+                recordStatus = "DELETED",
+                keyFields    = "{}",
+                dataHash     = "",
+                action       = "DELETE",
+                updatedBy    = "system",
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 

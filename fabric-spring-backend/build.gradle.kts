@@ -9,7 +9,7 @@ plugins {
 // Specify which @SpringBootApplication to use as entry point
 // (FabricApplication handles Fabric Gateway + WebSocket + OpenAPI)
 springBoot {
-	mainClass = "com.mpcorp.identity.IdentityApplicationKt"
+	mainClass = "org.fabric.api.FabricApplicationKt"
 }
 
 group = "com.mpcorp"

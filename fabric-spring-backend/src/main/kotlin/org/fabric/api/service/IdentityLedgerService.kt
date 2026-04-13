@@ -8,6 +8,7 @@ import org.fabric.api.exception.IdentityRecordNotFoundException
 import org.fabric.api.exception.FabricTransactionException
 import org.fabric.api.model.IdentityRecord
 import org.fabric.api.model.UpsertIdentityRecordRequest
+import org.fabric.api.model.VerifyRecordResponse
 import org.fabric.api.websocket.FabricEvent
 import org.fabric.api.websocket.FabricEventPublisher
 import org.fabric.api.websocket.EventType
@@ -26,12 +27,12 @@ private val log = KotlinLogging.logger {}
  *
  * Chaincode functions được gọi:
  *   - UpsertRecord(employeeId, recordType, status, keyFields, dataHash, action, timestamp, updatedBy)
- *   - ReadRecord(employeeId, recordType)
- *   - RecordExists(employeeId, recordType)
+ *   - GetRecord(recordType, employeeId)
+ *   - RecordExists(recordType, employeeId)
  *   - DeleteRecord(employeeId, recordType, updatedBy)
- *   - GetRecordsByEmployee(employeeId)
+ *   - GetAllRecordsByEmployee(employeeId)
  *   - GetAllRecords()
- *   - GetRecordHistory(employeeId, recordType)
+ *   - GetRecordHistory(recordType, employeeId)
  *
  * Tất cả dữ liệu nhận từ com.mpcorp.identity sẽ đi qua đây để ghi vào ledger.
  */
@@ -128,10 +129,10 @@ class IdentityLedgerService(
      * Đọc một IdentityRecord theo employeeId + recordType.
      * Không tạo transaction trên ledger.
      */
-    fun readRecord(employeeId: String, recordType: String): IdentityRecord {
-        log.debug { "EVALUATE ReadRecord employeeId=$employeeId type=$recordType" }
+    fun getRecord(recordType: String, employeeId: String): IdentityRecord {
+        log.debug { "EVALUATE GetRecord employeeId=$employeeId type=$recordType" }
         val result = runCatching {
-            contract.evaluateTransaction("ReadRecord", employeeId, recordType)
+            contract.evaluateTransaction("GetRecord", recordType, employeeId)
         }.getOrElse { e ->
             if (e.message?.contains("does not exist") == true)
                 throw IdentityRecordNotFoundException(employeeId, recordType)
@@ -143,10 +144,10 @@ class IdentityLedgerService(
     /**
      * Kiểm tra record có tồn tại không mà không throw exception.
      */
-    fun recordExists(employeeId: String, recordType: String): Boolean {
+    fun recordExists(recordType: String, employeeId: String): Boolean {
         log.debug { "EVALUATE RecordExists employeeId=$employeeId type=$recordType" }
         val result = runCatching {
-            contract.evaluateTransaction("RecordExists", employeeId, recordType)
+            contract.evaluateTransaction("RecordExists", recordType, employeeId)
         }.getOrElse { handleFabricError("RecordExists", it) }
         return String(result).trim().equals("true", ignoreCase = true)
     }
@@ -154,11 +155,11 @@ class IdentityLedgerService(
     /**
      * Lấy tất cả record của một employee (PROFILE + CONTRACT + PAYROLL).
      */
-    fun getRecordsByEmployee(employeeId: String): List<IdentityRecord> {
-        log.debug { "EVALUATE GetRecordsByEmployee employeeId=$employeeId" }
+    fun getAllRecordsByEmployee(employeeId: String): List<IdentityRecord> {
+        log.debug { "EVALUATE GetAllRecordsByEmployee employeeId=$employeeId" }
         val result = runCatching {
-            contract.evaluateTransaction("GetRecordsByEmployee", employeeId)
-        }.getOrElse { handleFabricError("GetRecordsByEmployee", it) }
+            contract.evaluateTransaction("GetAllRecordsByEmployee", employeeId)
+        }.getOrElse { handleFabricError("GetAllRecordsByEmployee", it) }
         return objectMapper.readValue(result)
     }
 
@@ -177,11 +178,36 @@ class IdentityLedgerService(
      * Lấy lịch sử thay đổi của một record theo employeeId + recordType.
      * Trả về danh sách các IdentityRecord theo thứ tự thời gian.
      */
-    fun getRecordHistory(employeeId: String, recordType: String): List<IdentityRecord> {
+    fun getRecordHistory(recordType: String, employeeId: String): List<IdentityRecord> {
         log.debug { "EVALUATE GetRecordHistory employeeId=$employeeId type=$recordType" }
         val result = runCatching {
-            contract.evaluateTransaction("GetRecordHistory", employeeId, recordType)
+            contract.evaluateTransaction("GetRecordHistory", recordType, employeeId)
         }.getOrElse { handleFabricError("GetRecordHistory", it) }
+        return objectMapper.readValue(result)
+    }
+
+    // ── Verify hash integrity ─────────────────────────────────────────────────
+
+    /**
+     * Verifies that the off-chain data (MySQL) has not been tampered with by comparing
+     * the provided SHA-256 hash against the immutable dataHash stored on-chain.
+     *
+     * Usage:
+     *   1. Caller re-serializes the MySQL record to JSON
+     *   2. Computes sha256(json)
+     *   3. Passes the hex string here
+     *   4. Service calls VerifyRecord on chaincode and returns the result
+     *
+     * @param recordType    PROFILE | CONTRACT | PAYROLL
+     * @param employeeId    employee identifier
+     * @param hashToVerify  SHA-256 hex of current off-chain data
+     * @return VerifyRecordResponse with valid=true if hashes match
+     */
+    fun verifyRecord(recordType: String, employeeId: String, hashToVerify: String): VerifyRecordResponse {
+        log.debug { "EVALUATE VerifyRecord employeeId=$employeeId type=$recordType" }
+        val result = runCatching {
+            contract.evaluateTransaction("VerifyRecord", recordType, employeeId, hashToVerify)
+        }.getOrElse { handleFabricError("VerifyRecord", it) }
         return objectMapper.readValue(result)
     }
 

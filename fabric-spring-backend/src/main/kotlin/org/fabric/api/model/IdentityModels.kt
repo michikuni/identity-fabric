@@ -94,3 +94,30 @@ data class ApiResponse<T>(
     val message: String,
     val data: T? = null,
 )
+
+@Schema(description = "Result of on-chain hash verification against off-chain MySQL data")
+data class VerifyRecordResponse(
+    @Schema(description = "true if the provided hash matches the hash stored on-chain")
+    @JsonProperty("valid")
+    val valid: Boolean,
+
+    @Schema(description = "Human-readable explanation of the verification result")
+    @JsonProperty("reason")
+    val reason: String?,
+
+    @Schema(description = "Composite key on ledger: '{recordType}:{employeeId}'")
+    @JsonProperty("recordId")
+    val recordId: String,
+
+    @Schema(description = "SHA-256 hash stored immutably on-chain at last write time")
+    @JsonProperty("storedHash")
+    val storedHash: String,
+
+    @Schema(description = "SHA-256 hash computed from current off-chain data (provided by caller)")
+    @JsonProperty("providedHash")
+    val providedHash: String,
+
+    @Schema(description = "ISO-8601 timestamp of the on-chain record")
+    @JsonProperty("timestamp")
+    val timestamp: String,
+)

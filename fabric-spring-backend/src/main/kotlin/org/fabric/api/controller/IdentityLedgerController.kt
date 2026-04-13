@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
+import io.swagger.v3.oas.annotations.Parameter
 import org.fabric.api.model.*
 import org.fabric.api.service.IdentityLedgerService
 import org.springframework.http.HttpStatus
@@ -22,9 +23,9 @@ import org.springframework.web.bind.annotation.*
  *   POST   /api/v1/ledger/init                          → InitLedger
  *   POST   /api/v1/ledger/records                       → UpsertRecord (CREATE/UPDATE)
  *   DELETE /api/v1/ledger/records/{employeeId}/{type}   → DeleteRecord
- *   GET    /api/v1/ledger/records/{employeeId}/{type}   → ReadRecord
+ *   GET    /api/v1/ledger/records/{employeeId}/{type}   → GetRecord
  *   GET    /api/v1/ledger/records/{employeeId}/{type}/exists → RecordExists
- *   GET    /api/v1/ledger/records/{employeeId}          → GetRecordsByEmployee
+ *   GET    /api/v1/ledger/records/{employeeId}          → GetAllRecordsByEmployee
  *   GET    /api/v1/ledger/records                       → GetAllRecords
  *   GET    /api/v1/ledger/records/{employeeId}/{type}/history → GetRecordHistory
  */
@@ -101,11 +102,11 @@ class IdentityLedgerController(
         summary = "Đọc một IdentityRecord",
         description = "Query world state theo employeeId + recordType. Không tạo transaction.",
     )
-    fun readRecord(
+    fun getRecord(
         @PathVariable employeeId: String,
         @PathVariable recordType: String,
     ): ResponseEntity<ApiResponse<IdentityRecord>> {
-        val record = ledgerService.readRecord(employeeId, recordType)
+        val record = ledgerService.getRecord(recordType, employeeId)
         return ResponseEntity.ok(
             ApiResponse(success = true, message = "Record found", data = record)
         )
@@ -117,7 +118,7 @@ class IdentityLedgerController(
         @PathVariable employeeId: String,
         @PathVariable recordType: String,
     ): ResponseEntity<ApiResponse<Boolean>> {
-        val exists = ledgerService.recordExists(employeeId, recordType)
+        val exists = ledgerService.recordExists(recordType, employeeId)
         return ResponseEntity.ok(
             ApiResponse(success = true, message = if (exists) "Record exists" else "Record not found", data = exists)
         )
@@ -131,7 +132,7 @@ class IdentityLedgerController(
     fun getRecordsByEmployee(
         @PathVariable employeeId: String,
     ): ResponseEntity<ApiResponse<List<IdentityRecord>>> {
-        val records = ledgerService.getRecordsByEmployee(employeeId)
+        val records = ledgerService.getAllRecordsByEmployee(employeeId)
         return ResponseEntity.ok(
             ApiResponse(success = true, message = "Found ${records.size} record(s) for employee $employeeId", data = records)
         )
@@ -158,9 +159,44 @@ class IdentityLedgerController(
         @PathVariable employeeId: String,
         @PathVariable recordType: String,
     ): ResponseEntity<ApiResponse<List<IdentityRecord>>> {
-        val history = ledgerService.getRecordHistory(employeeId, recordType)
+        val history = ledgerService.getRecordHistory(recordType, employeeId)
         return ResponseEntity.ok(
             ApiResponse(success = true, message = "Found ${history.size} history entry(ies)", data = history)
         )
+    }
+
+    // ── Verify hash integrity ──────────────────────────────────────────────────
+
+    @GetMapping("/records/{employeeId}/{recordType}/verify")
+    @Operation(
+        summary = "Xác thực tính toàn vẹn dữ liệu (Hybrid integrity check)",
+        description = """
+            So sánh hash của dữ liệu off-chain (MySQL) với dataHash bất biến đã lưu on-chain.
+
+            Cách dùng:
+              1. Lấy bản ghi hiện tại từ MySQL
+              2. Serialize thành JSON (cùng định dạng khi ghi lần đầu)
+              3. Tính SHA-256 của JSON đó
+              4. Gọi endpoint này với hash vừa tính
+
+            Kết quả valid=true → dữ liệu không bị thay đổi kể từ lần ghi lên chain cuối cùng.
+            Kết quả valid=false → phát hiện sai lệch, cần điều tra.
+        """,
+    )
+    fun verifyRecord(
+        @Parameter(description = "Employee ID", example = "123") @PathVariable employeeId: String,
+        @Parameter(description = "PROFILE | CONTRACT | PAYROLL") @PathVariable recordType: String,
+        @Parameter(
+            description = "SHA-256 hex của full JSON record hiện tại trong MySQL",
+            example = "a3f1b9c2...",
+            required = true,
+        ) @RequestParam hash: String,
+    ): ResponseEntity<ApiResponse<VerifyRecordResponse>> {
+        val result = ledgerService.verifyRecord(recordType.uppercase(), employeeId, hash)
+        val message = if (result.valid)
+            "Integrity verified — off-chain data matches on-chain hash"
+        else
+            "Integrity FAILED — hash mismatch detected, investigate tampering"
+        return ResponseEntity.ok(ApiResponse(success = result.valid, message = message, data = result))
     }
 }
