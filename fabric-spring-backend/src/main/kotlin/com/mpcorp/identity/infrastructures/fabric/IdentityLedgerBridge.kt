@@ -1,131 +1,190 @@
 package com.mpcorp.identity.infrastructures.fabric
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mpcorp.identity.domain.entity.ContractEntity
+import com.mpcorp.identity.domain.entity.PayrollEntity
 import com.mpcorp.identity.domain.entity.ProfileEntity
-import org.hyperledger.fabric.client.Gateway
+import org.fabric.api.model.UpsertIdentityRecordRequest
+import org.fabric.api.service.IdentityLedgerService
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 import java.security.MessageDigest
-import java.time.Instant
 
 /**
- * IdentityLedgerService — writes identity audit records to Hyperledger Fabric.
+ * FabricLedgerBridge — cầu nối giữa com.mpcorp.identity và org.fabric.api.
+ *
+ * Thay thế IdentityLedgerService cũ (cái gọi Gateway trực tiếp).
+ * Giờ delegate toàn bộ việc ghi blockchain sang [IdentityLedgerService] của org.fabric.api.
  *
  * Strategy: Fire-and-forget (async).
- *   - MySQL is the source of truth.
- *   - Blockchain captures who changed what and when, with a hash proof.
- *   - If Fabric is down, we log the error but do NOT rollback MySQL.
+ *   - MySQL là source of truth.
+ *   - Blockchain ghi audit trail + hash proof.
+ *   - Nếu Fabric lỗi → log warning, KHÔNG rollback MySQL.
  *
- * On-chain record structure (IdentityRecord):
- *   - employeeId   = employee's unique ID
- *   - recordType   = PROFILE | CONTRACT | PAYROLL
- *   - status       = ACTIVE | REVOKED | DELETED
- *   - keyFields    = non-sensitive JSON summary (name, gender, educationLevel, etc.)
- *   - dataHash     = SHA-256 of full off-chain data (for integrity verification)
- *   - action       = CREATE | UPDATE | DELETE
- *   - timestamp    = when the change happened
- *   - updatedBy    = actor (system for now)
+ * Được inject vào các UseCase của com.mpcorp.identity (CreateProfileUseCase, UpdateProfileUseCase, ...).
  */
 @Service
-class IdentityLedgerService(
-    private val gateway: Gateway,
-    private val props: FabricProperties,
-    private val objectMapper: ObjectMapper
+class FabricLedgerBridge(
+    private val ledgerService: IdentityLedgerService,
+    private val objectMapper: ObjectMapper,
 ) {
 
-    private val log = LoggerFactory.getLogger(IdentityLedgerService::class.java)
+    private val log = LoggerFactory.getLogger(FabricLedgerBridge::class.java)
 
-    // ── Public API called by UseCases ─────────────────────────────────────────
+    // ── Profile ───────────────────────────────────────────────────────────────
 
     @Async
     fun upsertProfileRecord(profile: ProfileEntity, action: String = "CREATE") {
-        val employeeId = profile.employee?.id?.toString() ?: profile.id.toString()
+        val employeeId = profile.employee.id?.toString() ?: run {
+            log.warn("[FabricBridge] ProfileEntity missing employeeId, skip")
+            return
+        }
         runCatching {
-            submitUpsert(
-                employeeId = employeeId,
-                recordType = "PROFILE",
-                status     = "ACTIVE",
-                keyFields  = buildProfileKeyFields(profile),
-                fullData   = objectMapper.writeValueAsString(profile),
-                action     = action,
-                updatedBy  = "system"
+            val keyFields = objectMapper.writeValueAsString(
+                mapOf(
+                    "name"           to profile.name,
+                    "gender"         to profile.gender,
+                    "educationLevel" to profile.educationLevel,
+                    "major"          to profile.major,
+                    "expYears"       to profile.expYears,
+                    "email"          to profile.email,
+                )
             )
-            log.info("[Fabric] PROFILE record written for employee=$employeeId action=$action")
+            val fullJson   = objectMapper.writeValueAsString(profile)
+            val dataHash   = sha256(fullJson)
+            val status     = if (action == "DELETE") "DELETED" else "ACTIVE"
+
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = employeeId,
+                    recordType = "PROFILE",
+                    status     = status,
+                    keyFields  = keyFields,
+                    dataHash   = dataHash,
+                    action     = action,
+                    updatedBy  = "system",
+                )
+            )
+            log.info("[FabricBridge] PROFILE record written — employeeId=$employeeId action=$action")
         }.onFailure { ex ->
-            log.warn("[Fabric] Failed to write PROFILE record for employee=$employeeId — ${ex.message}")
-            // Fire-and-forget: do NOT throw, MySQL commit already succeeded
+            log.warn("[FabricBridge] Failed to write PROFILE record for employeeId=$employeeId — ${ex.message}")
         }
     }
 
     @Async
     fun deleteProfileRecord(employeeId: String) {
         runCatching {
-            submitUpsert(
-                employeeId = employeeId,
-                recordType = "PROFILE",
-                status     = "DELETED",
-                keyFields  = "{}",
-                fullData   = "{}",
-                action     = "DELETE",
-                updatedBy  = "system"
-            )
-            log.info("[Fabric] PROFILE DELETE record written for employee=$employeeId")
+            ledgerService.deleteRecord(employeeId, "PROFILE", updatedBy = "system")
+            log.info("[FabricBridge] PROFILE DELETE written — employeeId=$employeeId")
         }.onFailure { ex ->
-            log.warn("[Fabric] Failed to write DELETE record for employee=$employeeId — ${ex.message}")
+            log.warn("[FabricBridge] Failed to write PROFILE DELETE for employeeId=$employeeId — ${ex.message}")
         }
     }
 
-    // ── Internal: call chaincode ──────────────────────────────────────────────
+    // ── Contract ──────────────────────────────────────────────────────────────
 
-    private fun submitUpsert(
-        employeeId: String,
-        recordType: String,
-        status: String,
-        keyFields: String,
-        fullData: String,
-        action: String,
-        updatedBy: String
-    ) {
-        val contract = gateway
-            .getNetwork(props.channelName)
-            .getContract(props.chaincodeName)
+    @Async
+    fun upsertContractRecord(contract: ContractEntity, action: String = "CREATE") {
+        val employeeId = contract.employee.id?.toString() ?: run {
+            log.warn("[FabricBridge] ContractEntity missing employeeId, skip")
+            return
+        }
+        runCatching {
+            val keyFields = objectMapper.writeValueAsString(
+                mapOf(
+                    "typeContract"   to contract.typeContract,
+                    "startDate"      to contract.startDate?.toString(),
+                    "endDate"        to contract.endDate?.toString(),
+                    "contractExpire" to contract.contractExpire?.toString(),
+                )
+            )
+            val fullJson = objectMapper.writeValueAsString(contract)
+            val dataHash = sha256(fullJson)
+            val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
 
-        contract.submitTransaction(
-            "UpsertRecord",
-            employeeId,
-            recordType,
-            status,
-            keyFields,
-            sha256(fullData),          // only the hash of full data goes on-chain
-            action,
-            Instant.now().toString(),
-            updatedBy
-        )
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = employeeId,
+                    recordType = "CONTRACT",
+                    status     = status,
+                    keyFields  = keyFields,
+                    dataHash   = dataHash,
+                    action     = action,
+                    updatedBy  = "system",
+                )
+            )
+            log.info("[FabricBridge] CONTRACT record written — employeeId=$employeeId action=$action")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] Failed to write CONTRACT record for employeeId=$employeeId — ${ex.message}")
+        }
+    }
+
+    @Async
+    fun deleteContractRecord(employeeId: String) {
+        runCatching {
+            ledgerService.deleteRecord(employeeId, "CONTRACT", updatedBy = "system")
+            log.info("[FabricBridge] CONTRACT DELETE written — employeeId=$employeeId")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] Failed to write CONTRACT DELETE for employeeId=$employeeId — ${ex.message}")
+        }
+    }
+
+    // ── Payroll ───────────────────────────────────────────────────────────────
+
+    @Async
+    fun upsertPayrollRecord(payroll: PayrollEntity, action: String = "CREATE") {
+        val employeeId = payroll.employee.id?.toString() ?: run {
+            log.warn("[FabricBridge] PayrollEntity missing employeeId, skip")
+            return
+        }
+        runCatching {
+            val keyFields = objectMapper.writeValueAsString(
+                mapOf(
+                    "salaryType"  to payroll.salaryType,
+                    "currency"    to payroll.currency,
+                    "totalIncome" to payroll.totalIncome,
+                    "payDay"      to payroll.payDay?.toString(),
+                    "bankName"    to payroll.bankName,
+                )
+            )
+            // Không hash số tài khoản và số lương cụ thể — chỉ hash toàn bộ object
+            val fullJson = objectMapper.writeValueAsString(payroll)
+            val dataHash = sha256(fullJson)
+            val status   = if (action == "DELETE") "DELETED" else "ACTIVE"
+
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = employeeId,
+                    recordType = "PAYROLL",
+                    status     = status,
+                    keyFields  = keyFields,
+                    dataHash   = dataHash,
+                    action     = action,
+                    updatedBy  = "system",
+                )
+            )
+            log.info("[FabricBridge] PAYROLL record written — employeeId=$employeeId action=$action")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] Failed to write PAYROLL record for employeeId=$employeeId — ${ex.message}")
+        }
+    }
+
+    @Async
+    fun deletePayrollRecord(employeeId: String) {
+        runCatching {
+            ledgerService.deleteRecord(employeeId, "PAYROLL", updatedBy = "system")
+            log.info("[FabricBridge] PAYROLL DELETE written — employeeId=$employeeId")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] Failed to write PAYROLL DELETE for employeeId=$employeeId — ${ex.message}")
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /**
-     * Builds a JSON object of non-sensitive key fields for the profile.
-     * PII (identityNumber, phone, address) is EXCLUDED and stays off-chain.
-     */
-    private fun buildProfileKeyFields(profile: ProfileEntity): String {
-        val fields = mapOf(
-            "name"           to (profile.name ?: ""),
-            "gender"         to (profile.gender ?: ""),
-            "educationLevel" to (profile.educationLevel ?: ""),
-            "major"          to (profile.major ?: ""),
-            "expYears"       to (profile.expYears ?: 0),
-            // identityNumber, phone, address → NOT included (PII stays off-chain)
-        )
-        return objectMapper.writeValueAsString(fields)
-    }
-
-    /** Returns the SHA-256 hex digest of the given input string. */
-    private fun sha256(input: String): String {
+    private fun sha256(data: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        return digest.digest(input.toByteArray())
+        return digest.digest(data.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
     }
 }

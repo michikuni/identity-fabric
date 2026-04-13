@@ -4,134 +4,194 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import mu.KotlinLogging
 import org.fabric.api.config.FabricProperties
-import org.fabric.api.exception.AssetAlreadyExistsException
-import org.fabric.api.exception.AssetNotFoundException
+import org.fabric.api.exception.IdentityRecordNotFoundException
 import org.fabric.api.exception.FabricTransactionException
-import org.fabric.api.model.Asset
-import org.fabric.api.model.TransferResult
-import org.fabric.api.websocket.EventType
+import org.fabric.api.model.IdentityRecord
+import org.fabric.api.model.UpsertIdentityRecordRequest
 import org.fabric.api.websocket.FabricEvent
 import org.fabric.api.websocket.FabricEventPublisher
+import org.fabric.api.websocket.EventType
 import org.hyperledger.fabric.client.EndorseException
 import org.hyperledger.fabric.client.Gateway
-import org.hyperledger.fabric.client.Network
 import org.hyperledger.fabric.client.SubmitException
 import org.springframework.stereotype.Service
+import java.time.Instant
 
 private val log = KotlinLogging.logger {}
 
+/**
+ * IdentityLedgerService — phía org.fabric.api
+ *
+ * Giao tiếp trực tiếp với chaincode `identity-ledger` (IdentityLedger.java) trên Hyperledger Fabric.
+ *
+ * Chaincode functions được gọi:
+ *   - UpsertRecord(employeeId, recordType, status, keyFields, dataHash, action, timestamp, updatedBy)
+ *   - ReadRecord(employeeId, recordType)
+ *   - RecordExists(employeeId, recordType)
+ *   - DeleteRecord(employeeId, recordType, updatedBy)
+ *   - GetRecordsByEmployee(employeeId)
+ *   - GetAllRecords()
+ *   - GetRecordHistory(employeeId, recordType)
+ *
+ * Tất cả dữ liệu nhận từ com.mpcorp.identity sẽ đi qua đây để ghi vào ledger.
+ */
 @Service
-class AssetService(
+class IdentityLedgerService(
     private val gateway: Gateway,
     private val props: FabricProperties,
     private val objectMapper: ObjectMapper,
-    private val eventPublisher: FabricEventPublisher
+    private val eventPublisher: FabricEventPublisher,
 ) {
 
-    private val network: Network by lazy { gateway.getNetwork(props.channelName) }
+    private val network by lazy { gateway.getNetwork(props.channelName) }
     private val contract by lazy { network.getContract(props.chaincodeName) }
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
+    /**
+     * Gọi InitLedger trên chaincode.
+     * Thường chỉ cần gọi một lần khi bootstrap.
+     */
     fun initLedger() {
         log.info { "Submitting InitLedger transaction" }
         runCatching {
             contract.submitTransaction("InitLedger")
         }.onFailure { handleFabricError("InitLedger", it) }
         log.info { "InitLedger committed successfully" }
-        eventPublisher.publish(FabricEvent(EventType.INIT_LEDGER, assetId = null, payload = null))
+        eventPublisher.publish(
+            FabricEvent(EventType.INIT_LEDGER, recordId = null, payload = null)
+        )
     }
 
-    // ── Read ──────────────────────────────────────────────────────────────────
+    // ── Write (SUBMIT) ────────────────────────────────────────────────────────
 
-    fun getAllAssets(): List<Asset> {
-        log.debug { "Evaluating GetAllAssets" }
-        val result = runCatching {
-            contract.evaluateTransaction("GetAllAssets")
-        }.getOrElse { handleFabricError("GetAllAssets", it) }
-        return objectMapper.readValue(result)
+    /**
+     * Tạo hoặc cập nhật một IdentityRecord trên ledger.
+     *
+     * Đây là phương thức chính nhận dữ liệu từ com.mpcorp.identity
+     * (qua HTTP hoặc service call) và ghi vào blockchain.
+     *
+     * @param request dữ liệu đã được chuẩn hóa từ identity backend
+     * @return IdentityRecord đã được ghi lên ledger
+     */
+    fun upsertRecord(request: UpsertIdentityRecordRequest): IdentityRecord {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT UpsertRecord employeeId=${request.employeeId} type=${request.recordType} action=${request.action}" }
+
+        val resultBytes = runCatching {
+            contract.submitTransaction(
+                "UpsertRecord",
+                request.employeeId,
+                request.recordType,
+                request.status,
+                request.keyFields,
+                request.dataHash,
+                request.action,
+                timestamp,
+                request.updatedBy,
+            )
+        }.getOrElse { handleFabricError("UpsertRecord", it) }
+
+        val record = objectMapper.readValue<IdentityRecord>(resultBytes)
+
+        // Publish WebSocket event
+        val eventType = when (request.action.uppercase()) {
+            "CREATE" -> EventType.RECORD_CREATED
+            "UPDATE" -> EventType.RECORD_UPDATED
+            "DELETE" -> EventType.RECORD_DELETED
+            else     -> EventType.RECORD_UPDATED
+        }
+        eventPublisher.publish(FabricEvent(eventType, recordId = record.recordId, payload = record))
+
+        return record
     }
 
-    fun getAsset(id: String): Asset {
-        log.debug { "Evaluating ReadAsset($id)" }
+    /**
+     * Xóa logic một record (đặt status = DELETED, action = DELETE).
+     * Chaincode không xóa vật lý — mọi thứ được ghi lại trong audit trail.
+     */
+    fun deleteRecord(employeeId: String, recordType: String, updatedBy: String = "system"): IdentityRecord {
+        log.info { "SUBMIT DeleteRecord employeeId=$employeeId type=$recordType" }
+
+        val resultBytes = runCatching {
+            contract.submitTransaction("DeleteRecord", employeeId, recordType, updatedBy)
+        }.getOrElse { handleFabricError("DeleteRecord", it) }
+
+        val record = objectMapper.readValue<IdentityRecord>(resultBytes)
+        eventPublisher.publish(FabricEvent(EventType.RECORD_DELETED, recordId = record.recordId, payload = record))
+        return record
+    }
+
+    // ── Read (EVALUATE) ───────────────────────────────────────────────────────
+
+    /**
+     * Đọc một IdentityRecord theo employeeId + recordType.
+     * Không tạo transaction trên ledger.
+     */
+    fun readRecord(employeeId: String, recordType: String): IdentityRecord {
+        log.debug { "EVALUATE ReadRecord employeeId=$employeeId type=$recordType" }
         val result = runCatching {
-            contract.evaluateTransaction("ReadAsset", id)
+            contract.evaluateTransaction("ReadRecord", employeeId, recordType)
         }.getOrElse { e ->
-            if (e.message?.contains("does not exist") == true) throw AssetNotFoundException(id)
-            handleFabricError("ReadAsset", e)
+            if (e.message?.contains("does not exist") == true)
+                throw IdentityRecordNotFoundException(employeeId, recordType)
+            handleFabricError("ReadRecord", e)
         }
         return objectMapper.readValue(result)
     }
 
-    fun assetExists(id: String): Boolean {
-        log.debug { "Evaluating AssetExists($id)" }
+    /**
+     * Kiểm tra record có tồn tại không mà không throw exception.
+     */
+    fun recordExists(employeeId: String, recordType: String): Boolean {
+        log.debug { "EVALUATE RecordExists employeeId=$employeeId type=$recordType" }
         val result = runCatching {
-            contract.evaluateTransaction("AssetExists", id)
-        }.getOrElse { handleFabricError("AssetExists", it) }
+            contract.evaluateTransaction("RecordExists", employeeId, recordType)
+        }.getOrElse { handleFabricError("RecordExists", it) }
         return String(result).trim().equals("true", ignoreCase = true)
     }
 
-    // ── Write ─────────────────────────────────────────────────────────────────
-
-    fun createAsset(id: String, color: String, size: Int, owner: String, appraisedValue: Int): Asset {
-        log.info { "Submitting CreateAsset($id)" }
-        if (assetExists(id)) throw AssetAlreadyExistsException(id)
-        runCatching {
-            contract.submitTransaction(
-                "CreateAsset", id, color, size.toString(), owner, appraisedValue.toString()
-            )
-        }.onFailure { handleFabricError("CreateAsset", it) }
-        val asset = getAsset(id)
-        eventPublisher.publish(FabricEvent(EventType.ASSET_CREATED, id, asset))
-        return asset
-    }
-
-    fun updateAsset(id: String, color: String, size: Int, owner: String, appraisedValue: Int): Asset {
-        log.info { "Submitting UpdateAsset($id)" }
-        if (!assetExists(id)) throw AssetNotFoundException(id)
-        runCatching {
-            contract.submitTransaction(
-                "UpdateAsset", id, color, size.toString(), owner, appraisedValue.toString()
-            )
-        }.onFailure { handleFabricError("UpdateAsset", it) }
-        val asset = getAsset(id)
-        eventPublisher.publish(FabricEvent(EventType.ASSET_UPDATED, id, asset))
-        return asset
-    }
-
-    fun deleteAsset(id: String) {
-        log.info { "Submitting DeleteAsset($id)" }
-        if (!assetExists(id)) throw AssetNotFoundException(id)
-        runCatching {
-            contract.submitTransaction("DeleteAsset", id)
-        }.onFailure { handleFabricError("DeleteAsset", it) }
-        eventPublisher.publish(FabricEvent(EventType.ASSET_DELETED, id, mapOf("id" to id)))
-    }
-
-    fun transferAsset(id: String, newOwner: String): String {
-        log.info { "Submitting TransferAsset($id -> $newOwner)" }
-        if (!assetExists(id)) throw AssetNotFoundException(id)
+    /**
+     * Lấy tất cả record của một employee (PROFILE + CONTRACT + PAYROLL).
+     */
+    fun getRecordsByEmployee(employeeId: String): List<IdentityRecord> {
+        log.debug { "EVALUATE GetRecordsByEmployee employeeId=$employeeId" }
         val result = runCatching {
-            contract.submitTransaction("TransferAsset", id, newOwner)
-        }.getOrElse { handleFabricError("TransferAsset", it) }
-        val previousOwner = String(result).trim()
-        eventPublisher.publish(
-            FabricEvent(
-                type = EventType.ASSET_TRANSFERRED,
-                assetId = id,
-                payload = TransferResult(id, previousOwner, newOwner)
-            )
-        )
-        return previousOwner
+            contract.evaluateTransaction("GetRecordsByEmployee", employeeId)
+        }.getOrElse { handleFabricError("GetRecordsByEmployee", it) }
+        return objectMapper.readValue(result)
+    }
+
+    /**
+     * Lấy toàn bộ record trên ledger (dùng cho audit/admin).
+     */
+    fun getAllRecords(): List<IdentityRecord> {
+        log.debug { "EVALUATE GetAllRecords" }
+        val result = runCatching {
+            contract.evaluateTransaction("GetAllRecords")
+        }.getOrElse { handleFabricError("GetAllRecords", it) }
+        return objectMapper.readValue(result)
+    }
+
+    /**
+     * Lấy lịch sử thay đổi của một record theo employeeId + recordType.
+     * Trả về danh sách các IdentityRecord theo thứ tự thời gian.
+     */
+    fun getRecordHistory(employeeId: String, recordType: String): List<IdentityRecord> {
+        log.debug { "EVALUATE GetRecordHistory employeeId=$employeeId type=$recordType" }
+        val result = runCatching {
+            contract.evaluateTransaction("GetRecordHistory", employeeId, recordType)
+        }.getOrElse { handleFabricError("GetRecordHistory", it) }
+        return objectMapper.readValue(result)
     }
 
     // ── Error handling ────────────────────────────────────────────────────────
 
     private fun handleFabricError(fn: String, t: Throwable): Nothing {
         val msg = when (t) {
-            is EndorseException -> "Endorsement failed for $fn: ${t.message}"
-            is SubmitException -> "Submit failed for $fn: ${t.message}"
-            else -> "Fabric error in $fn: ${t.message}"
+            is EndorseException -> "Endorse failed for $fn: ${t.message}"
+            is SubmitException  -> "Submit failed for $fn: ${t.message}"
+            else                -> "Fabric error in $fn: ${t.message}"
         }
         log.error(t) { msg }
         throw FabricTransactionException(msg, t)
