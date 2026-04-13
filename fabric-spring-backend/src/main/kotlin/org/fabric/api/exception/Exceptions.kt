@@ -13,11 +13,8 @@ private val log = KotlinLogging.logger {}
 
 // ── Domain exceptions ─────────────────────────────────────────────────────────
 
-class AssetNotFoundException(id: String) :
-    RuntimeException("Asset '$id' does not exist on the ledger")
-
-class AssetAlreadyExistsException(id: String) :
-    RuntimeException("Asset '$id' already exists on the ledger")
+class IdentityRecordNotFoundException(employeeId: String, recordType: String) :
+    RuntimeException("IdentityRecord '$recordType:$employeeId' does not exist on the ledger")
 
 class FabricTransactionException(message: String, cause: Throwable? = null) :
     RuntimeException(message, cause)
@@ -27,20 +24,12 @@ class FabricTransactionException(message: String, cause: Throwable? = null) :
 @RestControllerAdvice
 class GlobalExceptionHandler {
 
-    @ExceptionHandler(AssetNotFoundException::class)
-    fun handleNotFound(ex: AssetNotFoundException): ResponseEntity<ApiResponse<Nothing>> {
+    @ExceptionHandler(IdentityRecordNotFoundException::class)
+    fun handleNotFound(ex: IdentityRecordNotFoundException): ResponseEntity<ApiResponse<Nothing>> {
         log.warn { ex.message }
         return ResponseEntity
             .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse(success = false, message = ex.message ?: "Not found"))
-    }
-
-    @ExceptionHandler(AssetAlreadyExistsException::class)
-    fun handleConflict(ex: AssetAlreadyExistsException): ResponseEntity<ApiResponse<Nothing>> {
-        log.warn { ex.message }
-        return ResponseEntity
-            .status(HttpStatus.CONFLICT)
-            .body(ApiResponse(success = false, message = ex.message ?: "Conflict"))
+            .body(ApiResponse(success = false, message = ex.message ?: "Record not found"))
     }
 
     @ExceptionHandler(FabricTransactionException::class)
@@ -67,6 +56,6 @@ class GlobalExceptionHandler {
         log.error(ex) { "Unhandled exception: ${ex.message}" }
         return ResponseEntity
             .status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(ApiResponse(success = false, message = "An unexpected error occurred"))
+            .body(ApiResponse(success = false, message = "Internal server error: ${ex.message}"))
     }
 }

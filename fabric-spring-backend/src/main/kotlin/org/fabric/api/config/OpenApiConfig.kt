@@ -14,15 +14,15 @@ class OpenApiConfig {
     fun openAPI(): OpenAPI = OpenAPI()
         .info(
             Info()
-                .title("Hyperledger Fabric – Asset Transfer API")
+                .title("Identity Ledger - Fabric API")
                 .description(
                     """
-                    REST API for interacting with the Hyperledger Fabric 2-Org network.
-                    Provides full CRUD and transfer operations on blockchain assets via the Fabric Gateway SDK.
+                    REST API ghi và truy vấn identity audit records trên Hyperledger Fabric.
+                    Nhận dữ liệu từ com.mpcorp.identity (Profile, Contract, Payroll) và ghi vào blockchain.
                     """.trimIndent()
                 )
                 .version("1.0.0")
-                .contact(Contact().name("Fabric Dev Team"))
+                .contact(Contact().name("MpCorp Dev Team"))
                 .license(License().name("Apache 2.0"))
         )
 }

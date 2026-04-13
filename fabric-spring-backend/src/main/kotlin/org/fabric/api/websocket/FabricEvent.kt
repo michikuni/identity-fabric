@@ -3,24 +3,22 @@ package org.fabric.api.websocket
 import java.time.Instant
 
 /**
- * All Fabric transaction events pushed over WebSocket.
+ * Tất cả Fabric transaction events được push qua WebSocket.
  *
- * Clients subscribe to:
- *   /topic/assets          — every asset mutation
- *   /topic/assets/{id}     — mutations for a specific asset
+ * Clients subscribe:
+ *   /topic/identity          — mọi identity record mutation
+ *   /topic/identity/{id}     — mutations cho một record cụ thể (theo recordId)
  */
 data class FabricEvent(
-    /** One of: INIT_LEDGER, ASSET_CREATED, ASSET_UPDATED, ASSET_DELETED, ASSET_TRANSFERRED */
     val type: EventType,
-    val assetId: String?,
+    val recordId: String?,
     val payload: Any?,
-    val timestamp: Instant = Instant.now()
+    val timestamp: Instant = Instant.now(),
 )
 
 enum class EventType {
     INIT_LEDGER,
-    ASSET_CREATED,
-    ASSET_UPDATED,
-    ASSET_DELETED,
-    ASSET_TRANSFERRED
+    RECORD_CREATED,
+    RECORD_UPDATED,
+    RECORD_DELETED,
 }

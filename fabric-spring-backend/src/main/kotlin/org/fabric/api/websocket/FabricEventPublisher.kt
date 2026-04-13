@@ -7,27 +7,21 @@ import org.springframework.stereotype.Component
 private val log = KotlinLogging.logger {}
 
 /**
- * Thin wrapper around [SimpMessagingTemplate] that broadcasts
- * [FabricEvent]s to two STOMP topics:
+ * Broadcasts [FabricEvent]s tới các STOMP topics:
  *
- *   - `/topic/assets`       — all asset events (global feed)
- *   - `/topic/assets/{id}`  — events for a specific asset ID
- *
- * Usage:
- *   publisher.publish(FabricEvent(EventType.ASSET_CREATED, "asset7", asset))
+ *   - `/topic/identity`         — tất cả identity record events
+ *   - `/topic/identity/{id}`    — events theo recordId cụ thể
  */
 @Component
 class FabricEventPublisher(private val messagingTemplate: SimpMessagingTemplate) {
 
     fun publish(event: FabricEvent) {
-        log.debug { "Publishing WS event: ${event.type} for asset=${event.assetId}" }
+        log.debug { "Publishing WS event: ${event.type} for record=${event.recordId}" }
 
-        // Broadcast to global topic
-        messagingTemplate.convertAndSend("/topic/assets", event)
+        messagingTemplate.convertAndSend("/topic/identity", event)
 
-        // Broadcast to per-asset topic (skip for init which has no specific ID)
-        event.assetId?.let { id ->
-            messagingTemplate.convertAndSend("/topic/assets/$id", event)
+        event.recordId?.let { id ->
+            messagingTemplate.convertAndSend("/topic/identity/$id", event)
         }
     }
 }
