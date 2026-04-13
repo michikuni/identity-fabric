@@ -8,9 +8,6 @@ import org.hyperledger.fabric.client.identity.Identities
 import org.hyperledger.fabric.client.identity.Signers
 import org.hyperledger.fabric.client.identity.X509Identity
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
 import java.io.FileReader
 import java.nio.file.Files
 import java.nio.file.Path
@@ -18,13 +15,17 @@ import java.security.PrivateKey
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 
-@Configuration
+/**
+ * Standalone Fabric gateway factory — chỉ dùng khi chạy IdentityApplication riêng lẻ.
+ *
+ * Khi chạy FabricApplication (unified app), org.fabric.api.config.FabricGatewayConfig
+ * sẽ tạo các bean Gateway/ManagedChannel → class này KHÔNG được đăng ký là @Configuration
+ * để tránh conflict bean name 'fabricGatewayConfig'.
+ */
 class FabricGatewayConfig(private val props: FabricProperties) {
 
     private val log = LoggerFactory.getLogger(FabricGatewayConfig::class.java)
 
-    @Bean
-    @ConditionalOnMissingBean(ManagedChannel::class)
     fun grpcChannel(): ManagedChannel {
         log.info("Connecting to Fabric peer at ${props.peer.endpoint}")
         val tlsCert = Path.of(props.peer.tlsCertPath)
@@ -37,8 +38,6 @@ class FabricGatewayConfig(private val props: FabricProperties) {
             .build()
     }
 
-    @Bean
-    @ConditionalOnMissingBean(Gateway::class)
     fun fabricGateway(grpcChannel: ManagedChannel): Gateway {
         val certificate: X509Certificate =
             Identities.readX509Certificate(FileReader(props.gateway.certPath))
