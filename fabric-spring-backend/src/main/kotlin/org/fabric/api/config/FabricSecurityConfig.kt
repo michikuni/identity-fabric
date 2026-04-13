@@ -1,27 +1,21 @@
 package org.fabric.api.config
 
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
-import org.springframework.core.annotation.Order
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.web.SecurityFilterChain
 
 /**
- * Fallback security config — chỉ active khi chạy FabricApplication standalone
- * (không có SecurityConfig từ com.mpcorp.identity).
+ * Standalone security config — chỉ dùng khi chạy FabricApplication riêng lẻ
+ * (không có com.mpcorp.identity.infrastructures.config.SecurityConfig).
  *
- * Khi chạy unified app: SecurityConfig (@Order 1) xử lý tất cả request trước,
- * FabricSecurityConfig (@Order 2) không được invoke.
+ * Khi chạy unified app (FabricApplication + com.mpcorp.identity):
+ *   SecurityConfig từ com.mpcorp.identity đã handle toàn bộ security
+ *   (bao gồm /api/v1/ledger/**, /ws/**, JWT cho identity routes).
+ *   Class này KHÔNG có @Configuration để tránh UnreachableFilterChainException.
  *
- * In production: restrict this to specific IPs or add an API key filter.
+ * Nếu muốn chạy FabricApplication standalone, thêm lại @Configuration.
  */
-@Configuration
-@EnableWebSecurity
-@Order(2)
 class FabricSecurityConfig {
 
-    @Bean
     fun fabricSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
         http
             .csrf { it.disable() }
