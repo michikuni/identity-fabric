@@ -2,21 +2,23 @@ package org.fabric.api.config
 
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.annotation.Order
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.web.SecurityFilterChain
 
 /**
- * Opens all endpoints for the Fabric Gateway API service.
+ * Fallback security config — chỉ active khi chạy FabricApplication standalone
+ * (không có SecurityConfig từ com.mpcorp.identity).
  *
- * This service has no user authentication — it is a blockchain API layer
- * that will be called by the Identity backend (com.mpcorp.identity) or
- * directly by the Flutter mobile app via the identity service.
+ * Khi chạy unified app: SecurityConfig (@Order 1) xử lý tất cả request trước,
+ * FabricSecurityConfig (@Order 2) không được invoke.
  *
  * In production: restrict this to specific IPs or add an API key filter.
  */
 @Configuration
 @EnableWebSecurity
+@Order(2)
 class FabricSecurityConfig {
 
     @Bean

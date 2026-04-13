@@ -8,6 +8,7 @@ import org.hyperledger.fabric.client.identity.Identities
 import org.hyperledger.fabric.client.identity.Signers
 import org.hyperledger.fabric.client.identity.X509Identity
 import org.slf4j.LoggerFactory
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.io.FileReader
@@ -23,6 +24,7 @@ class FabricGatewayConfig(private val props: FabricProperties) {
     private val log = LoggerFactory.getLogger(FabricGatewayConfig::class.java)
 
     @Bean
+    @ConditionalOnMissingBean(ManagedChannel::class)
     fun grpcChannel(): ManagedChannel {
         log.info("Connecting to Fabric peer at ${props.peer.endpoint}")
         val tlsCert = Path.of(props.peer.tlsCertPath)
@@ -36,6 +38,7 @@ class FabricGatewayConfig(private val props: FabricProperties) {
     }
 
     @Bean
+    @ConditionalOnMissingBean(Gateway::class)
     fun fabricGateway(grpcChannel: ManagedChannel): Gateway {
         val certificate: X509Certificate =
             Identities.readX509Certificate(FileReader(props.gateway.certPath))

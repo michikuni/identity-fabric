@@ -3,6 +3,7 @@ package com.mpcorp.identity.infrastructures.config
 import com.mpcorp.identity.infrastructures.security.JwtAuthFilter
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.annotation.Order
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
@@ -12,6 +13,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableWebSecurity
+@Order(1)
 class SecurityConfig {
 
     @Bean
@@ -21,10 +23,13 @@ class SecurityConfig {
             .authorizeHttpRequests { auth ->
                 auth.requestMatchers(
                     "/api/v1/auth/**",
-                    "/api/v1/assets/**",   // blockchain endpoints — public for Postman testing
+                    "/api/v1/ledger/**",    // Fabric ledger API — public
+                    "/api/v1/assets/**",
+                    "/ws/**",               // WebSocket endpoint
                     "/swagger-ui/**",
                     "/swagger-ui.html",
                     "/api-docs/**",
+                    "/v3/api-docs/**",
                 ).permitAll()
                     .anyRequest().authenticated()
             }.sessionManagement { session ->
