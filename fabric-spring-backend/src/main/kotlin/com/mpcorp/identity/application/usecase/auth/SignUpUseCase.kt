@@ -7,12 +7,14 @@ import com.mpcorp.identity.common.exception.UserAlreadyExistingException
 import com.mpcorp.identity.common.utils.JwtUtils
 import com.mpcorp.identity.domain.entity.AuthEntity
 import com.mpcorp.identity.domain.repository.AuthRepository
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
 
 @Service
 class SignUpUseCase (
     private val authRepository: AuthRepository,
-    private val jwtUtils: JwtUtils
+    private val jwtUtils: JwtUtils,
+    private val passwordEncoder: BCryptPasswordEncoder,
 ){
     fun execute(signUpCommand: SignUpCommand) : String {
         val phone = authRepository.findByUsername(signUpCommand.phone)
@@ -25,7 +27,7 @@ class SignUpUseCase (
             AuthEntity(
                 phone = signUpCommand.phone,
                 email = signUpCommand.email,
-                password = signUpCommand.password,
+                password = passwordEncoder.encode(signUpCommand.password),
                 role = EmployeeRole.EMPLOYEE,
                 accountStatus = AccountStatus.PENDING,
             )

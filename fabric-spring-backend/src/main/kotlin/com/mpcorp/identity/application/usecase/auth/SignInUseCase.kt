@@ -8,16 +8,18 @@ import com.mpcorp.identity.common.exception.InvalidPasswordException
 import com.mpcorp.identity.common.exception.UserNotFoundException
 import com.mpcorp.identity.common.utils.JwtUtils
 import com.mpcorp.identity.domain.repository.AuthRepository
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
 
 @Service
 class SignInUseCase (
     private val authRepository: AuthRepository,
-    private val jwtUtils: JwtUtils
+    private val jwtUtils: JwtUtils,
+    private val passwordEncoder: BCryptPasswordEncoder,
 ){
     fun execute(signInCommand: SignInCommand) : String {
         val user = authRepository.findByUsername(signInCommand.username) ?: throw UserNotFoundException()
-        if (user.password != signInCommand.password) {
+        if (!passwordEncoder.matches(signInCommand.password, user.password)) {
             throw InvalidPasswordException()
         }
         when (user.accountStatus) {
