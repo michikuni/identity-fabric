@@ -1,16 +1,22 @@
 package com.mpcorp.identity.presentation.controller
 
+import com.mpcorp.identity.common.enums.AccountStatus
 import com.mpcorp.identity.common.enums.EmployeeRole
 import com.mpcorp.identity.common.exception.EmployeeNotFoundException
+import com.mpcorp.identity.common.exception.UserAlreadyExistingException
 import com.mpcorp.identity.common.response.ApiResponse
 import com.mpcorp.identity.infrastructures.fabric.FabricLedgerBridge
+import com.mpcorp.identity.infrastructures.persistence.jpa_entity.AuthJpaEntity
+import com.mpcorp.identity.infrastructures.persistence.jpa_entity.EmployeeJpaEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AuthJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.web.bind.annotation.*
 import java.sql.Timestamp
 import java.time.Instant
+import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/chief")
@@ -19,9 +25,20 @@ class ChiefController(
     private val employeeJpaRepository: EmployeeJpaRepository,
     private val authJpaRepository: AuthJpaRepository,
     private val ledgerBridge: FabricLedgerBridge,
+    private val passwordEncoder: BCryptPasswordEncoder,
 ) {
     data class ChangeRoleRequest(val role: String)
     data class TerminateRequest(val reason: String)
+    data class CreateEmployeeRequest(
+        val email: String,
+        val phone: String,
+        val password: String,
+        val role: String = "EMPLOYEE",
+        val department: String,
+        val position: String,
+        val workingType: String = "FULL_TIME",
+        val note: String? = null,
+    )
 
     @GetMapping("/employees")
     fun listEmployees(
@@ -46,6 +63,48 @@ class ChiefController(
             )
         }
         return ApiResponse(status = "200", message = "OK", data = filtered)
+    }
+
+    @PostMapping("/employees")
+    fun createEmployee(@RequestBody body: CreateEmployeeRequest): ApiResponse<Any> {
+        val actor = SecurityContextHolder.getContext().authentication?.name ?: "system"
+        if (authJpaRepository.findUserByPhoneOrEmail(body.email) != null ||
+            authJpaRepository.findUserByPhoneOrEmail(body.phone) != null) {
+            throw UserAlreadyExistingException()
+        }
+        val auth = authJpaRepository.save(AuthJpaEntity(
+            id = UUID.randomUUID(),
+            email = body.email,
+            phone = body.phone,
+            password = passwordEncoder.encode(body.password),
+            role = EmployeeRole.valueOf(body.role.uppercase()),
+            accountStatus = AccountStatus.ACTIVE,
+        ))
+        val now = Timestamp.from(Instant.now())
+        val emp = employeeJpaRepository.save(EmployeeJpaEntity(
+            auth = auth,
+            department = body.department,
+            position = body.position,
+            status = "ACTIVE",
+            workingType = body.workingType,
+            isActive = true,
+            manager = null,
+            createdAt = now,
+            updatedAt = now,
+            createdBy = actor,
+            note = body.note,
+        ))
+        ledgerBridge.logRequest(emp.id.toString(), "EMPLOYEE_CREATE", "CREATE", actor)
+        return ApiResponse(
+            status = "201", message = "Employee created",
+            data = mapOf(
+                "id" to emp.id,
+                "email" to auth.email,
+                "role" to auth.role.name,
+                "department" to emp.department,
+                "position" to emp.position,
+            )
+        )
     }
 
     @PutMapping("/employees/{id}/role")
