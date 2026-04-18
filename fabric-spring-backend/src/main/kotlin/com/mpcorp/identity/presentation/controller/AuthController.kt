@@ -19,16 +19,19 @@ class AuthController(
     private val signUpUseCase: SignUpUseCase,
 ) : AuthApi {
     override fun signIn(@RequestBody signInRequest: SignInRequest): SignInResponse {
-        val signInSuccess = signInUseCase.execute(
+        val result = signInUseCase.execute(
             SignInCommand(
                 username = signInRequest.username,
                 password = signInRequest.password
             )
         )
         return SignInResponse(
-                status = ErrorCodes.SUCCESS,
-                message = StatusMessage.SUCCESS,
-                token = signInSuccess
+            status = ErrorCodes.SUCCESS,
+            message = StatusMessage.SUCCESS,
+            token = result.token,
+            id = result.id,
+            role = result.role,
+            email = result.email,
         )
     }
 

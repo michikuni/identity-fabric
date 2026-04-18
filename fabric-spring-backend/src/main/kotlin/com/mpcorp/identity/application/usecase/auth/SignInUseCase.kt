@@ -17,7 +17,9 @@ class SignInUseCase (
     private val jwtUtils: JwtUtils,
     private val passwordEncoder: BCryptPasswordEncoder,
 ){
-    fun execute(signInCommand: SignInCommand) : String {
+    data class Result(val token: String, val id: String, val role: String, val email: String)
+
+    fun execute(signInCommand: SignInCommand) : Result {
         val user = authRepository.findByUsername(signInCommand.username) ?: throw UserNotFoundException()
         if (!passwordEncoder.matches(signInCommand.password, user.password)) {
             throw InvalidPasswordException()
@@ -28,6 +30,6 @@ class SignInUseCase (
             AccountStatus.ACTIVE   -> Unit
         }
         val token = jwtUtils.generateToken(userId = user.id.toString(), role = user.role.name)
-        return token
+        return Result(token = token, id = user.id.toString(), role = user.role.name, email = user.email)
     }
 }
