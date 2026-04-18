@@ -67,8 +67,14 @@ class ChiefController(
     @PostMapping("/employees")
     fun createEmployee(@RequestBody body: CreateEmployeeRequest): ApiResponse<Any> {
         val actor = SecurityContextHolder.getContext().authentication?.name ?: "system"
-        if (authJpaRepository.findUserByPhoneOrEmail(body.email) != null ||
-            authJpaRepository.findUserByPhoneOrEmail(body.phone) != null) {
+        // Chỉ chặn nếu tài khoản cũ còn ACTIVE (nhân viên đang làm)
+        // Cho phép tạo lại nếu tài khoản cũ đã bị terminate (isActive = false)
+        fun isActiveAccount(username: String): Boolean {
+            val auth = authJpaRepository.findUserByPhoneOrEmail(username) ?: return false
+            val emp = employeeJpaRepository.findAll().find { it.auth.id == auth.id }
+            return emp?.isActive != false
+        }
+        if (isActiveAccount(body.email) || isActiveAccount(body.phone)) {
             throw UserAlreadyExistingException()
         }
         val auth = authJpaRepository.save(AuthJpaEntity(
