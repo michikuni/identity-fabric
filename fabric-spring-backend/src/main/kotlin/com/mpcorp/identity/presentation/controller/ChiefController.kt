@@ -16,7 +16,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.web.bind.annotation.*
 import java.sql.Timestamp
 import java.time.Instant
-import java.util.UUID
 
 @RestController
 @RequestMapping("/api/v1/chief")
@@ -73,7 +72,6 @@ class ChiefController(
             throw UserAlreadyExistingException()
         }
         val auth = authJpaRepository.save(AuthJpaEntity(
-            id = UUID.randomUUID(),
             email = body.email,
             phone = body.phone,
             password = passwordEncoder.encode(body.password),
