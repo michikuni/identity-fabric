@@ -39,3 +39,9 @@ logging:
     org.fabric: DEBUG
     org.hyperledger: INFO
     com.mpcorp: DEBUG
+
+# Admin seed — override via environment variables in production
+admin:
+  email: ${ADMIN_EMAIL:admin@mpcorp.com}
+  phone: ${ADMIN_PHONE:0900000000}
+  password: ${ADMIN_PASSWORD:Admin@123}
