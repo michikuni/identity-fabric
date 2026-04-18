@@ -10,6 +10,7 @@ fun AuthJpaEntity.toDomainEntity() : AuthEntity {
         password = password,
         phone = phone,
         role = role,
+        accountStatus = accountStatus,
     )
 }
 
@@ -20,5 +21,6 @@ fun AuthEntity.toPersistentEntity() : AuthJpaEntity {
         password = password,
         phone = phone,
         role = role,
+        accountStatus = accountStatus,
     )
 }

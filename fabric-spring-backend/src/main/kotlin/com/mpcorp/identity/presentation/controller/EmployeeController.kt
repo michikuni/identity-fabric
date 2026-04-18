@@ -40,8 +40,6 @@ class EmployeeController(
                 workingType = request.workingType,
                 isActive = request.isActive,
                 manager = request.manager?.toModel(),
-                createdAt = request.createdAt,
-                updatedAt = request.updatedAt,
                 createdBy = request.createdBy,
                 note = request.note,
             )

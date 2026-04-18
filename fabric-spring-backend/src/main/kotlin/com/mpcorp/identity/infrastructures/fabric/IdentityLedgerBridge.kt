@@ -257,6 +257,63 @@ class FabricLedgerBridge(
         }
     }
 
+    // ── Attendance ────────────────────────────────────────────────────────────
+
+    @Async
+    fun logAttendance(employeeId: String, action: String, updatedBy: String) {
+        val keyFields = objectMapper.writeValueAsString(mapOf("action" to action))
+        val dataHash  = sha256("$employeeId:$action")
+        runCatching {
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = employeeId, recordType = "ATTENDANCE",
+                    status = "ACTIVE", keyFields = keyFields,
+                    dataHash = dataHash, action = action, updatedBy = updatedBy,
+                )
+            )
+        }.onFailure { ex ->
+            outboxService.enqueue(employeeId, "ATTENDANCE", "ACTIVE", keyFields, dataHash, action, updatedBy, ex.message ?: "unknown")
+        }
+    }
+
+    // ── Request ───────────────────────────────────────────────────────────────
+
+    @Async
+    fun logRequest(employeeId: String, requestType: String, action: String, updatedBy: String) {
+        val keyFields = objectMapper.writeValueAsString(mapOf("requestType" to requestType, "action" to action))
+        val dataHash  = sha256("$employeeId:$requestType:$action")
+        runCatching {
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = employeeId, recordType = "REQUEST",
+                    status = "ACTIVE", keyFields = keyFields,
+                    dataHash = dataHash, action = action, updatedBy = updatedBy,
+                )
+            )
+        }.onFailure { ex ->
+            outboxService.enqueue(employeeId, "REQUEST", "ACTIVE", keyFields, dataHash, action, updatedBy, ex.message ?: "unknown")
+        }
+    }
+
+    // ── Company ───────────────────────────────────────────────────────────────
+
+    @Async
+    fun logCompany(companyId: String, action: String, updatedBy: String) {
+        val keyFields = objectMapper.writeValueAsString(mapOf("companyId" to companyId))
+        val dataHash  = sha256("$companyId:$action")
+        runCatching {
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = companyId, recordType = "COMPANY",
+                    status = "ACTIVE", keyFields = keyFields,
+                    dataHash = dataHash, action = action, updatedBy = updatedBy,
+                )
+            )
+        }.onFailure { ex ->
+            outboxService.enqueue(companyId, "COMPANY", "ACTIVE", keyFields, dataHash, action, updatedBy, ex.message ?: "unknown")
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun sha256(data: String): String {

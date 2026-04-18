@@ -1,5 +1,6 @@
 package com.mpcorp.identity.infrastructures.persistence.jpa_entity
 
+import com.mpcorp.identity.common.enums.AccountStatus
 import com.mpcorp.identity.common.enums.EmployeeRole
 import jakarta.persistence.*
 import java.util.UUID
@@ -22,4 +23,8 @@ data class AuthJpaEntity (
 
     @Column(name = "role")
     var role: EmployeeRole = EmployeeRole.EMPLOYEE,
+
+    @Column(name = "account_status")
+    @Enumerated(EnumType.STRING)
+    var accountStatus: AccountStatus = AccountStatus.ACTIVE,
 )

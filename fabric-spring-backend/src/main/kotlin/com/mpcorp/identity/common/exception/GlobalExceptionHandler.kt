@@ -40,6 +40,28 @@ class GlobalExceptionHandler {
         )
     }
 
+    @ExceptionHandler(AccountPendingException::class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    fun handleAccountPending(ex: AccountPendingException): ErrorResponse {
+        return ErrorResponse(
+            message = ex.message ?: ErrorMessage.ACCOUNT_PENDING,
+            code = HttpStatus.FORBIDDEN.value(),
+            status = StatusMessage.FAILURE,
+            data = HttpStatus.FORBIDDEN.reasonPhrase,
+        )
+    }
+
+    @ExceptionHandler(AccountRejectedException::class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    fun handleAccountRejected(ex: AccountRejectedException): ErrorResponse {
+        return ErrorResponse(
+            message = ex.message ?: ErrorMessage.ACCOUNT_REJECTED,
+            code = HttpStatus.FORBIDDEN.value(),
+            status = StatusMessage.FAILURE,
+            data = HttpStatus.FORBIDDEN.reasonPhrase,
+        )
+    }
+
     @ExceptionHandler(UserAlreadyExistingException::class)
     @ResponseStatus(HttpStatus.CONFLICT)
     fun handleUserAlreadyExisting(ex: UserAlreadyExistingException): ErrorResponse {

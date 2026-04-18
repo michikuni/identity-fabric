@@ -1,6 +1,7 @@
 package com.mpcorp.identity.application.usecase.auth
 
 import com.mpcorp.identity.application.dto.auth.SignUpCommand
+import com.mpcorp.identity.common.enums.AccountStatus
 import com.mpcorp.identity.common.enums.EmployeeRole
 import com.mpcorp.identity.common.exception.UserAlreadyExistingException
 import com.mpcorp.identity.common.utils.JwtUtils
@@ -26,6 +27,7 @@ class SignUpUseCase (
                 email = signUpCommand.email,
                 password = signUpCommand.password,
                 role = EmployeeRole.EMPLOYEE,
+                accountStatus = AccountStatus.PENDING,
             )
         )
         val token = jwtUtils.generateToken(userId = userCreated.id.toString(), role = userCreated.role.name)

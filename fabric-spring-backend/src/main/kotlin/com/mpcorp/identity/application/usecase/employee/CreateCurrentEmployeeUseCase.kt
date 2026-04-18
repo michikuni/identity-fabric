@@ -10,6 +10,8 @@ import com.mpcorp.identity.domain.entity.EmployeeEntity
 import com.mpcorp.identity.domain.repository.AuthRepository
 import com.mpcorp.identity.domain.repository.EmployeeRepository
 import org.springframework.stereotype.Service
+import java.sql.Timestamp
+import java.time.Instant
 
 @Service
 class CreateCurrentEmployeeUseCase(
@@ -21,6 +23,7 @@ class CreateCurrentEmployeeUseCase(
         if (auth.id != null && employeeRepository.findEmployeeByAuthId(auth.id!!) != null) {
             throw EmployeeAlreadyExistingException()
         }
+        val now = Timestamp.from(Instant.now())
         val manager = command.manager?.resolveEmployee(employeeRepository)
         val employee = EmployeeEntity(
             auth = auth,
@@ -30,8 +33,8 @@ class CreateCurrentEmployeeUseCase(
             workingType = command.workingType,
             isActive = command.isActive,
             manager = manager,
-            createdAt = command.createdAt,
-            updatedAt = command.updatedAt,
+            createdAt = now,
+            updatedAt = now,
             createdBy = command.createdBy,
             note = command.note,
         )

@@ -12,4 +12,6 @@ object ErrorMessage {
     const val INVALID_PASSWORD = "Password invalid"
     const val USER_ALREADY_EXISTS = "User already exists"
     const val SERVER_ERROR = "Internal server error"
+    const val ACCOUNT_PENDING = "Account is pending approval by admin"
+    const val ACCOUNT_REJECTED = "Account has been rejected"
 }
