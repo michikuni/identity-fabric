@@ -53,5 +53,28 @@ class EmployeeJpaEntity(
     var contract: ContractJpaEntity? = null,
 
     @OneToOne(mappedBy = "employee", cascade = [CascadeType.ALL])
-    var payroll: PayrollJpaEntity? = null
+    var payroll: PayrollJpaEntity? = null,
+
+    // DID Layer — issued when Admin approves the account
+    @Column(name = "did", unique = true)
+    var did: String? = null,
+
+    @Column(name = "public_key", columnDefinition = "TEXT")
+    var publicKey: String? = null,
+
+    // VC Layer — EmploymentVC JSON issued on approve
+    @Column(name = "employment_vc", columnDefinition = "LONGTEXT")
+    var employmentVc: String? = null,
+
+    // VC Layer — TerminationVC JSON issued on terminate
+    @Column(name = "termination_vc", columnDefinition = "LONGTEXT")
+    var terminationVc: String? = null,
+
+    // VC Layer — SalaryRangeVC JSON issued when payroll is assigned
+    @Column(name = "salary_range_vc", columnDefinition = "LONGTEXT")
+    var salaryRangeVc: String? = null,
+
+    // VC Layer — PromotionVC JSON issued when role/position changes
+    @Column(name = "promotion_vc", columnDefinition = "LONGTEXT")
+    var promotionVc: String? = null,
 )

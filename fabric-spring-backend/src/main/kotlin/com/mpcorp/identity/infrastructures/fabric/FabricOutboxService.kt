@@ -3,6 +3,8 @@ package com.mpcorp.identity.infrastructures.fabric
 import com.mpcorp.identity.infrastructures.persistence.jpa_entity.FabricOutboxJpaEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_entity.OutboxEventStatus
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.FabricOutboxJpaRepository
+import org.fabric.api.model.RegisterDIDRequest
+import org.fabric.api.model.RevokeDIDRequest
 import org.fabric.api.model.UpsertIdentityRecordRequest
 import org.fabric.api.service.IdentityLedgerService
 import org.slf4j.LoggerFactory
@@ -123,17 +125,40 @@ class FabricOutboxService(
         event.retryCount++
 
         runCatching {
-            ledgerService.upsertRecord(
-                UpsertIdentityRecordRequest(
-                    employeeId = event.employeeId,
-                    recordType = event.recordType,
-                    status     = event.recordStatus,
-                    keyFields  = event.keyFields,
-                    dataHash   = event.dataHash,
-                    action     = event.action,
-                    updatedBy  = event.updatedBy,
+            if (event.recordType == "DID") {
+                // DID events dùng chaincode function riêng
+                val did = "did:fabric:trustid:${event.employeeId}"
+                if (event.action == "CREATE") {
+                    ledgerService.registerDID(
+                        RegisterDIDRequest(
+                            did          = did,
+                            employeeId   = event.employeeId,
+                            publicKeyJwk = event.dataHash, // dataHash field reused to store JWK for DID events
+                            controller   = "did:fabric:trustid:org1",
+                        )
+                    )
+                } else {
+                    ledgerService.revokeDID(
+                        RevokeDIDRequest(
+                            did          = did,
+                            revokedBy    = event.updatedBy,
+                            revokeReason = event.keyFields,
+                        )
+                    )
+                }
+            } else {
+                ledgerService.upsertRecord(
+                    UpsertIdentityRecordRequest(
+                        employeeId = event.employeeId,
+                        recordType = event.recordType,
+                        status     = event.recordStatus,
+                        keyFields  = event.keyFields,
+                        dataHash   = event.dataHash,
+                        action     = event.action,
+                        updatedBy  = event.updatedBy,
+                    )
                 )
-            )
+            }
             // Thành công
             event.eventStatus = OutboxEventStatus.COMPLETED
             repository.save(event)

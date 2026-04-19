@@ -6,7 +6,10 @@ import mu.KotlinLogging
 import org.fabric.api.config.FabricProperties
 import org.fabric.api.exception.IdentityRecordNotFoundException
 import org.fabric.api.exception.FabricTransactionException
+import org.fabric.api.model.DIDDocument
 import org.fabric.api.model.IdentityRecord
+import org.fabric.api.model.RegisterDIDRequest
+import org.fabric.api.model.RevokeDIDRequest
 import org.fabric.api.model.UpsertIdentityRecordRequest
 import org.fabric.api.model.VerifyRecordResponse
 import org.fabric.api.websocket.FabricEvent
@@ -183,6 +186,71 @@ class IdentityLedgerService(
         val result = runCatching {
             contract.evaluateTransaction("GetRecordHistory", recordType, employeeId)
         }.getOrElse { handleFabricError("GetRecordHistory", it) }
+        return objectMapper.readValue(result)
+    }
+
+    // ── DID Layer ─────────────────────────────────────────────────────────────
+
+    /**
+     * Đăng ký DID Document lên ledger khi Admin approve account.
+     * Gọi chaincode RegisterDID.
+     */
+    fun registerDID(request: RegisterDIDRequest): DIDDocument {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT RegisterDID did=${request.did} employeeId=${request.employeeId}" }
+
+        val resultBytes = runCatching {
+            contract.submitTransaction(
+                "RegisterDID",
+                request.did,
+                request.employeeId,
+                request.publicKeyJwk,
+                request.controller,
+                timestamp,
+            )
+        }.getOrElse { handleFabricError("RegisterDID", it) }
+
+        val doc = objectMapper.readValue<DIDDocument>(resultBytes)
+        eventPublisher.publish(FabricEvent(EventType.RECORD_CREATED, recordId = doc.did, payload = doc))
+        return doc
+    }
+
+    /**
+     * Thu hồi DID Document khi nhân viên chấm dứt hợp đồng.
+     * Gọi chaincode RevokeDID.
+     */
+    fun revokeDID(request: RevokeDIDRequest): DIDDocument {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT RevokeDID did=${request.did} revokedBy=${request.revokedBy}" }
+
+        val resultBytes = runCatching {
+            contract.submitTransaction(
+                "RevokeDID",
+                request.did,
+                request.revokedBy,
+                request.revokeReason,
+                timestamp,
+            )
+        }.getOrElse { handleFabricError("RevokeDID", it) }
+
+        val doc = objectMapper.readValue<DIDDocument>(resultBytes)
+        eventPublisher.publish(FabricEvent(EventType.RECORD_UPDATED, recordId = doc.did, payload = doc))
+        return doc
+    }
+
+    /**
+     * Resolve DID Document từ ledger.
+     * Gọi chaincode ResolveDID (EVALUATE — không tốn phí).
+     */
+    fun resolveDID(did: String): DIDDocument {
+        log.debug { "EVALUATE ResolveDID did=$did" }
+        val result = runCatching {
+            contract.evaluateTransaction("ResolveDID", did)
+        }.getOrElse { e ->
+            if (e.message?.contains("not found") == true)
+                throw IdentityRecordNotFoundException(did, "DID")
+            handleFabricError("ResolveDID", e)
+        }
         return objectMapper.readValue(result)
     }
 

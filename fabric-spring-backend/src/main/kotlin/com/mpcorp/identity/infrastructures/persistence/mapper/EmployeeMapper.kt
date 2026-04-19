@@ -17,6 +17,8 @@ fun EmployeeJpaEntity.toDomainEntity(): EmployeeEntity {
         updatedAt = updatedAt,
         createdBy = createdBy,
         note = note,
+        did = did,
+        publicKey = publicKey,
     )
 }
 
@@ -34,6 +36,8 @@ fun EmployeeEntity.toPersistentEntity(): EmployeeJpaEntity {
         updatedAt = updatedAt,
         createdBy = createdBy,
         note = note,
+        did = did,
+        publicKey = publicKey,
     )
 }
 
@@ -51,6 +55,8 @@ private fun EmployeeJpaEntity.toDomainReference(): EmployeeEntity {
         updatedAt = updatedAt,
         createdBy = createdBy,
         note = note,
+        did = did,
+        publicKey = publicKey,
     )
 }
 
@@ -68,5 +74,7 @@ private fun EmployeeEntity.toPersistentReference(): EmployeeJpaEntity {
         updatedAt = updatedAt,
         createdBy = createdBy,
         note = note,
+        did = did,
+        publicKey = publicKey,
     )
 }

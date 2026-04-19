@@ -11,4 +11,5 @@ data class CreateEmployeeCommand(
     val manager: com.mpcorp.identity.application.references.EmployeeRefModel?,
     val createdBy: String,
     val note: String?,
+    val publicKeyJwk: String? = null,
 )

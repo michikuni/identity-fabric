@@ -34,6 +34,7 @@ class EmployeeRepositoryImpl(
             updatedAt = employee.updatedAt,
             createdBy = employee.createdBy,
             note = employee.note,
+            publicKey = employee.publicKey,
         )
         val dataSaveEmployee = employeeJpaRepository.save(employeeJpaData)
         return dataSaveEmployee.toDomainEntity()

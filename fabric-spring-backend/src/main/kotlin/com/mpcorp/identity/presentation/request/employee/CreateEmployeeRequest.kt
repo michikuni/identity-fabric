@@ -11,4 +11,5 @@ data class CreateEmployeeRequest(
     val manager: EmployeeRefPayload? = null,
     val createdBy: String,
     val note: String?,
+    val publicKeyJwk: String? = null,
 )

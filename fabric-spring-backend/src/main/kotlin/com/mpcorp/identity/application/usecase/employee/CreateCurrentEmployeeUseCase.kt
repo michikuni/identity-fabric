@@ -37,6 +37,7 @@ class CreateCurrentEmployeeUseCase(
             updatedAt = now,
             createdBy = command.createdBy,
             note = command.note,
+            publicKey = command.publicKeyJwk,
         )
         return employeeRepository.createEmployee(employee).toGetEmployeeResponseCommand()
     }

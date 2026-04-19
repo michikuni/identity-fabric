@@ -17,5 +17,7 @@ class EmployeeEntity(
     val note: String?,
     val profile: ProfileEntity? = null,
     val contract: ContractEntity? = null,
-    val payroll: PayrollEntity? = null
+    val payroll: PayrollEntity? = null,
+    val did: String? = null,
+    val publicKey: String? = null,
 )

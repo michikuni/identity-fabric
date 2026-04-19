@@ -95,6 +95,39 @@ data class ApiResponse<T>(
     val data: T? = null,
 )
 
+// ── DID models (mirrors DIDDocument.java in chaincode) ───────────────────────
+
+@Schema(description = "DID Document stored on the Fabric ledger")
+data class DIDDocument(
+    @JsonProperty("did")          val did: String,
+    @JsonProperty("employeeId")   val employeeId: String,
+    @JsonProperty("publicKeyJwk") val publicKeyJwk: String,
+    @JsonProperty("controller")   val controller: String,
+    @JsonProperty("status")       val status: String,
+    @JsonProperty("createdAt")    val createdAt: String,
+    @JsonProperty("updatedAt")    val updatedAt: String,
+    @JsonProperty("revokedAt")    val revokedAt: String?,
+    @JsonProperty("revokedBy")    val revokedBy: String?,
+    @JsonProperty("revokeReason") val revokeReason: String?,
+)
+
+@Schema(description = "Request to register a DID on the ledger")
+data class RegisterDIDRequest(
+    @field:NotBlank val did: String,
+    @field:NotBlank val employeeId: String,
+    @field:NotBlank val publicKeyJwk: String,
+    val controller: String = "did:fabric:trustid:org1",
+)
+
+@Schema(description = "Request to revoke a DID on the ledger")
+data class RevokeDIDRequest(
+    @field:NotBlank val did: String,
+    @field:NotBlank val revokedBy: String,
+    val revokeReason: String = "CONTRACT_TERMINATED",
+)
+
+// ── Verify hash integrity ─────────────────────────────────────────────────────
+
 @Schema(description = "Result of on-chain hash verification against off-chain MySQL data")
 data class VerifyRecordResponse(
     @Schema(description = "true if the provided hash matches the hash stored on-chain")

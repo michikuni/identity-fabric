@@ -4,11 +4,16 @@ import com.mpcorp.identity.common.enums.AccountStatus
 import com.mpcorp.identity.common.exception.UserNotFoundException
 import com.mpcorp.identity.common.response.ApiResponse
 import com.mpcorp.identity.domain.repository.AuthRepository
+import com.mpcorp.identity.infrastructures.fabric.FabricLedgerBridge
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AttendanceJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.LeaveRequestJpaRepository
+import com.mpcorp.identity.infrastructures.persistence.jpa_repository.PayrollJpaRepository
+import com.mpcorp.identity.infrastructures.vc.VcIssuerService
+import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.server.ResponseStatusException
 import java.time.LocalDate
 import java.util.UUID
 
@@ -20,6 +25,9 @@ class AdminController(
     private val attendanceJpaRepository: AttendanceJpaRepository,
     private val leaveRequestJpaRepository: LeaveRequestJpaRepository,
     private val authRepository: AuthRepository,
+    private val fabricBridge: FabricLedgerBridge,
+    private val vcIssuerService: VcIssuerService,
+    private val payrollJpaRepository: PayrollJpaRepository,
 ) {
     @GetMapping("/dashboard")
     fun dashboard(): ApiResponse<Any> {
@@ -61,10 +69,51 @@ class AdminController(
     fun approveAccount(@PathVariable id: String): ApiResponse<Any> {
         val uuid = UUID.fromString(id)
         val updated = authRepository.updateStatus(uuid, AccountStatus.ACTIVE)
+
+        // publicKeyJwk được nhân viên gửi lên lúc onboarding (POST /employee)
+        // Admin chỉ approve — backend tự lấy key từ DB
+        val employee = employeeJpaRepository.findEmployeeByAuthId(uuid)
+        if (employee != null) {
+            // Issue DID on Fabric (async)
+            if (!employee.publicKey.isNullOrBlank()) {
+                fabricBridge.registerDID(
+                    employeeId   = employee.id.toString(),
+                    publicKeyJwk = employee.publicKey!!,
+                    approvedBy   = updated.email,
+                )
+            }
+            // Issue EmploymentVC and persist
+            val vc = vcIssuerService.issueEmploymentVC(employee)
+            employee.employmentVc = vc
+            employeeJpaRepository.save(employee)
+        }
+
         return ApiResponse(
             status = "200", message = "Account approved",
             data = mapOf("id" to updated.id.toString(), "accountStatus" to updated.accountStatus.name)
         )
+    }
+
+    /**
+     * Issue SalaryRangeVC dựa trên payroll hiện tại của nhân viên.
+     * PUT /api/v1/admin/employees/{employeeId}/issue-salary-vc
+     */
+    @PutMapping("/employees/{employeeId}/issue-salary-vc")
+    fun issueSalaryRangeVC(@PathVariable employeeId: Long): ApiResponse<Any> {
+        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
+            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
+        }
+        val payroll = payrollJpaRepository.findPayrollByEmployeeId(employeeId)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No payroll found for employee — assign payroll first")
+
+        val vc = vcIssuerService.issueSalaryRangeVC(
+            employee   = employee,
+            baseSalary = payroll.baseSalary,
+            currency   = payroll.currency,
+        )
+        employee.salaryRangeVc = vc
+        employeeJpaRepository.save(employee)
+        return ApiResponse(status = "200", message = "SalaryRangeVC issued", data = mapOf("employeeId" to employeeId))
     }
 
     @PutMapping("/accounts/{id}/reject")

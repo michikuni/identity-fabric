@@ -42,6 +42,7 @@ class EmployeeController(
                 manager = request.manager?.toModel(),
                 createdBy = request.createdBy,
                 note = request.note,
+                publicKeyJwk = request.publicKeyJwk,
             )
         )
 

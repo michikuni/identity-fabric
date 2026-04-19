@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.mpcorp.identity.domain.entity.ContractEntity
 import com.mpcorp.identity.domain.entity.PayrollEntity
 import com.mpcorp.identity.domain.entity.ProfileEntity
+import org.fabric.api.model.RegisterDIDRequest
+import org.fabric.api.model.RevokeDIDRequest
 import org.fabric.api.model.UpsertIdentityRecordRequest
 import org.fabric.api.service.IdentityLedgerService
 import org.slf4j.LoggerFactory
@@ -311,6 +313,78 @@ class FabricLedgerBridge(
             )
         }.onFailure { ex ->
             outboxService.enqueue(companyId, "COMPANY", "ACTIVE", keyFields, dataHash, action, updatedBy, ex.message ?: "unknown")
+        }
+    }
+
+    // ── DID ───────────────────────────────────────────────────────────────────
+
+    /**
+     * Đăng ký DID Document lên Fabric. Gọi sau khi Admin approve account.
+     *
+     * @param employeeId  ID của employee (Long, dùng làm phần cuối DID)
+     * @param publicKeyJwk  ECDSA P-256 public key dạng JWK JSON, do Flutter sinh và gửi lên
+     * @param approvedBy  email/employeeId của Admin thực hiện approve
+     */
+    @Async
+    fun registerDID(employeeId: String, publicKeyJwk: String, approvedBy: String) {
+        val did = "did:fabric:trustid:$employeeId"
+        runCatching {
+            ledgerService.registerDID(
+                RegisterDIDRequest(
+                    did          = did,
+                    employeeId   = employeeId,
+                    publicKeyJwk = publicKeyJwk,
+                    controller   = "did:fabric:trustid:org1",
+                )
+            )
+            log.info("[FabricBridge] DID registered — did=$did approvedBy=$approvedBy")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] RegisterDID failed — did=$did error=${ex.message}")
+            // DID registration failure: enqueue as PROFILE type audit event for retry
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "DID",
+                recordStatus = "ACTIVE",
+                keyFields    = objectMapper.writeValueAsString(mapOf("did" to did, "approvedBy" to approvedBy)),
+                dataHash     = sha256("$did:$publicKeyJwk"),
+                action       = "CREATE",
+                updatedBy    = approvedBy,
+                error        = ex.message ?: "unknown",
+            )
+        }
+    }
+
+    /**
+     * Thu hồi DID Document khi chấm dứt hợp đồng.
+     *
+     * @param employeeId  ID của employee
+     * @param revokedBy   email/employeeId của Admin/Chief thực hiện terminate
+     * @param reason      lý do thu hồi, mặc định "CONTRACT_TERMINATED"
+     */
+    @Async
+    fun revokeDID(employeeId: String, revokedBy: String, reason: String = "CONTRACT_TERMINATED") {
+        val did = "did:fabric:trustid:$employeeId"
+        runCatching {
+            ledgerService.revokeDID(
+                RevokeDIDRequest(
+                    did          = did,
+                    revokedBy    = revokedBy,
+                    revokeReason = reason,
+                )
+            )
+            log.info("[FabricBridge] DID revoked — did=$did revokedBy=$revokedBy reason=$reason")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] RevokeDID failed — did=$did error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = "DID",
+                recordStatus = "REVOKED",
+                keyFields    = objectMapper.writeValueAsString(mapOf("did" to did, "reason" to reason)),
+                dataHash     = sha256("$did:REVOKED"),
+                action       = "UPDATE",
+                updatedBy    = revokedBy,
+                error        = ex.message ?: "unknown",
+            )
         }
     }
 

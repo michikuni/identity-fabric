@@ -24,6 +24,8 @@ class SecurityConfig {
                 auth.requestMatchers(
                     "/api/v1/auth/**",
                     "/api/v1/assets/**",
+                    "/api/v1/identity/**",   // DID resolve + VC fetch — public for Verifiers
+                    "/api/v1/oidc/**",       // OID4VP — public for Verifiers and Holders
                     "/ws/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html",

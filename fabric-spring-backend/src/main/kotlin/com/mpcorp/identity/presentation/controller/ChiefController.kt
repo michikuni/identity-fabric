@@ -10,6 +10,7 @@ import com.mpcorp.identity.infrastructures.persistence.jpa_entity.AuthJpaEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_entity.EmployeeJpaEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AuthJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
+import com.mpcorp.identity.infrastructures.vc.VcIssuerService
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
@@ -25,8 +26,9 @@ class ChiefController(
     private val authJpaRepository: AuthJpaRepository,
     private val ledgerBridge: FabricLedgerBridge,
     private val passwordEncoder: BCryptPasswordEncoder,
+    private val vcIssuerService: VcIssuerService,
 ) {
-    data class ChangeRoleRequest(val role: String)
+    data class ChangeRoleRequest(val role: String, val position: String? = null)
     data class TerminateRequest(val reason: String)
     data class CreateEmployeeRequest(
         val email: String,
@@ -115,8 +117,23 @@ class ChiefController(
     fun changeRole(@PathVariable id: Long, @RequestBody body: ChangeRoleRequest): ApiResponse<Any> {
         val actor = SecurityContextHolder.getContext().authentication?.name ?: "system"
         val emp = employeeJpaRepository.findById(id).orElseThrow(::EmployeeNotFoundException)
+        val oldPosition = emp.position
         emp.auth.role = EmployeeRole.valueOf(body.role.uppercase())
+        // Update position to match new role if provided
+        val newPosition = body.position ?: emp.position
+        emp.position = newPosition
         authJpaRepository.save(emp.auth)
+        // Issue PromotionVC if position actually changed
+        if (oldPosition != newPosition || body.position != null) {
+            val promotionVc = vcIssuerService.issuePromotionVC(
+                employee    = emp,
+                oldPosition = oldPosition,
+                newPosition = newPosition,
+                promotedBy  = actor,
+            )
+            emp.promotionVc = promotionVc
+        }
+        employeeJpaRepository.save(emp)
         ledgerBridge.logRequest(id.toString(), "ROLE_CHANGE", body.role, actor)
         return ApiResponse(status = "200", message = "Role updated", data = mapOf("id" to id, "newRole" to body.role))
     }
@@ -130,6 +147,12 @@ class ChiefController(
         emp.updatedAt = Timestamp.from(Instant.now())
         employeeJpaRepository.save(emp)
         ledgerBridge.logRequest(id.toString(), "TERMINATION", "DELETE", actor)
+        // Revoke DID on Fabric when employee is terminated
+        ledgerBridge.revokeDID(employeeId = id.toString(), revokedBy = actor, reason = body.reason)
+        // Issue TerminationVC and persist
+        val terminationVc = vcIssuerService.issueTerminationVC(emp, revokedBy = actor, reason = body.reason)
+        emp.terminationVc = terminationVc
+        employeeJpaRepository.save(emp)
         return ApiResponse(status = "200", message = "Employee terminated", data = mapOf("id" to id))
     }
 }
