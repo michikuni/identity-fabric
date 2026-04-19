@@ -245,6 +245,118 @@ public final class IdentityLedger implements ContractInterface {
         return genson.serialize(records);
     }
 
+    // ─── DID Layer ───────────────────────────────────────────────────────────
+
+    /**
+     * Registers a new DID Document on the ledger.
+     * Called by the backend when Admin approves an employee account.
+     *
+     * @param ctx          transaction context
+     * @param did          DID string, e.g. "did:fabric:trustid:EMP-2024-001"
+     * @param employeeId   reference to the employee record
+     * @param publicKeyJwk ECDSA P-256 public key in JWK JSON format
+     * @param controller   DID of the issuing org, e.g. "did:fabric:trustid:org1"
+     * @param timestamp    ISO-8601 UTC creation timestamp
+     * @return the stored DIDDocument
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public DIDDocument RegisterDID(
+            final Context ctx,
+            final String did,
+            final String employeeId,
+            final String publicKeyJwk,
+            final String controller,
+            final String timestamp) {
+
+        ChaincodeStub stub = ctx.getStub();
+
+        if (did == null || did.isEmpty() || publicKeyJwk == null || publicKeyJwk.isEmpty()) {
+            throw new ChaincodeException("did and publicKeyJwk are required", LedgerErrors.INVALID_ARGUMENT.toString());
+        }
+
+        String key = "did:" + did;
+        String existing = stub.getStringState(key);
+        if (existing != null && !existing.isEmpty()) {
+            throw new ChaincodeException("DID already registered: " + did, LedgerErrors.RECORD_ALREADY_EXISTS.toString());
+        }
+
+        DIDDocument doc = new DIDDocument(
+                did, employeeId, publicKeyJwk, controller,
+                "ACTIVE", timestamp, timestamp, null, null, null);
+
+        stub.putStringState(key, genson.serialize(doc));
+        stub.setEvent("DIDRegistered", genson.serialize(doc).getBytes());
+
+        System.out.printf("[IdentityLedger] RegisterDID did=%s employee=%s%n", did, employeeId);
+        return doc;
+    }
+
+    /**
+     * Revokes a DID Document. Called when an employee contract is terminated.
+     * The record is updated (not deleted) — full history is preserved.
+     *
+     * @param ctx         transaction context
+     * @param did         DID string to revoke
+     * @param revokedBy   actor performing the revocation (Admin/Chief employeeId)
+     * @param revokeReason reason string, e.g. "CONTRACT_TERMINATED"
+     * @param timestamp   ISO-8601 UTC revocation timestamp
+     * @return the updated DIDDocument with status=REVOKED
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public DIDDocument RevokeDID(
+            final Context ctx,
+            final String did,
+            final String revokedBy,
+            final String revokeReason,
+            final String timestamp) {
+
+        ChaincodeStub stub = ctx.getStub();
+        String key = "did:" + did;
+        String json = stub.getStringState(key);
+
+        if (json == null || json.isEmpty()) {
+            throw new ChaincodeException("DID not found: " + did, LedgerErrors.RECORD_NOT_FOUND.toString());
+        }
+
+        DIDDocument existing = genson.deserialize(json, DIDDocument.class);
+
+        if ("REVOKED".equals(existing.getStatus())) {
+            throw new ChaincodeException("DID already revoked: " + did, LedgerErrors.INVALID_ARGUMENT.toString());
+        }
+
+        DIDDocument revoked = new DIDDocument(
+                existing.getDid(), existing.getEmployeeId(), existing.getPublicKeyJwk(),
+                existing.getController(), "REVOKED",
+                existing.getCreatedAt(), timestamp,
+                timestamp, revokedBy, revokeReason);
+
+        stub.putStringState(key, genson.serialize(revoked));
+        stub.setEvent("DIDRevoked", genson.serialize(revoked).getBytes());
+
+        System.out.printf("[IdentityLedger] RevokeDID did=%s by=%s reason=%s%n", did, revokedBy, revokeReason);
+        return revoked;
+    }
+
+    /**
+     * Resolves a DID to its DID Document.
+     * Used by Verifiers (banks, other employers) to check key material and status.
+     *
+     * @param ctx transaction context
+     * @param did DID string to resolve
+     * @return DIDDocument or throws if not found
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public DIDDocument ResolveDID(final Context ctx, final String did) {
+        String key = "did:" + did;
+        String json = ctx.getStub().getStringState(key);
+
+        if (json == null || json.isEmpty()) {
+            throw new ChaincodeException("DID not found: " + did, LedgerErrors.RECORD_NOT_FOUND.toString());
+        }
+
+        return genson.deserialize(json, DIDDocument.class);
+    }
+
     // ─── Verify hash integrity ────────────────────────────────────────────────
 
     /**
