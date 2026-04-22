@@ -1,5 +1,6 @@
 package com.mpcorp.identity.presentation.controller
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.mpcorp.identity.common.response.ApiResponse
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import com.mpcorp.identity.infrastructures.vc.VcIssuerService
@@ -24,6 +25,7 @@ class IdentityController(
     private val ledgerService: IdentityLedgerService,
     private val employeeJpaRepository: EmployeeJpaRepository,
     private val vcIssuerService: VcIssuerService,
+    private val objectMapper: ObjectMapper,
 ) {
 
     /**
@@ -104,5 +106,56 @@ class IdentityController(
             status = "200", message = "OK",
             data = mapOf("valid" to result.valid, "reason" to result.reason),
         )
+    }
+
+    /**
+     * Verify VC by its short ID (QR token approach).
+     * GET /api/v1/identity/vc/verify-by-id?vcId=vc:trustid:employment:42:1713500000
+     *
+     * Verifier quét QR chứa vcId ngắn → gọi endpoint này thay vì gửi toàn bộ VC JSON.
+     * Backend tìm VC theo id field trong tất cả VC columns, verify chữ ký, trả kết quả.
+     */
+    @GetMapping("/vc/verify-by-id")
+    fun verifyVCById(
+        @org.springframework.web.bind.annotation.RequestParam vcId: String
+    ): ApiResponse<Map<String, Any>> {
+        val vcJson = findVcById(vcId)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "VC not found for id: $vcId")
+
+        val result = vcIssuerService.verifyVC(vcJson)
+
+        val subject: Map<*, *>? = try {
+            @Suppress("UNCHECKED_CAST")
+            val vc = objectMapper.readValue(vcJson, Map::class.java) as Map<String, Any>
+            vc["credentialSubject"] as? Map<*, *>
+        } catch (_: Exception) { null }
+
+        return ApiResponse(
+            status = "200", message = "OK",
+            data = buildMap {
+                put("valid", result.valid)
+                put("reason", result.reason)
+                if (subject != null) put("credentialSubject", subject)
+            },
+        )
+    }
+
+    private fun findVcById(vcId: String): String? {
+        for (employee in employeeJpaRepository.findAll()) {
+            val candidates = listOfNotNull(
+                employee.employmentVc,
+                employee.terminationVc,
+                employee.salaryRangeVc,
+                employee.promotionVc,
+            )
+            for (vcJson in candidates) {
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    val vc = objectMapper.readValue(vcJson, Map::class.java) as Map<String, Any>
+                    if (vc["id"] == vcId) return vcJson
+                } catch (_: Exception) {}
+            }
+        }
+        return null
     }
 }
