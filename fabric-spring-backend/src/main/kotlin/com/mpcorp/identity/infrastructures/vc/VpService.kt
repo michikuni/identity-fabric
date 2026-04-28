@@ -1,6 +1,7 @@
 package com.mpcorp.identity.infrastructures.vc
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import org.springframework.stereotype.Service
 
 /**
@@ -20,6 +21,7 @@ class VpService(
     private val objectMapper: ObjectMapper,
     private val vcIssuerService: VcIssuerService,
     private val sessionStore: VpSessionStore,
+    private val employeeJpaRepository: EmployeeJpaRepository,
 ) {
 
     /**
@@ -68,10 +70,16 @@ class VpService(
                 return VcIssuerService.VcVerifyResult(false, "VP contains no credentials")
             }
 
-            // 3. Verify each VC's proof
+            // 3. Verify each VC's proof using the original full VC from DB.
+            // The submitted VC may have selective-disclosed (trimmed) credentialSubject,
+            // so we look up the canonical VC by its `id` field and verify that instead.
             for (vcRaw in vcList) {
-                val vcJson = objectMapper.writeValueAsString(vcRaw)
-                val result = vcIssuerService.verifyVC(vcJson)
+                @Suppress("UNCHECKED_CAST")
+                val vcMap = vcRaw as? Map<String, Any> ?: continue
+                val vcId = vcMap["id"] as? String
+                val canonicalJson = if (vcId != null) findVcById(vcId) else null
+                val vcJsonToVerify = canonicalJson ?: objectMapper.writeValueAsString(vcRaw)
+                val result = vcIssuerService.verifyVC(vcJsonToVerify)
                 if (!result.valid) return result
             }
 
@@ -92,6 +100,25 @@ class VpService(
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
+
+    private fun findVcById(vcId: String): String? {
+        for (employee in employeeJpaRepository.findAll()) {
+            val candidates = listOfNotNull(
+                employee.employmentVc,
+                employee.terminationVc,
+                employee.salaryRangeVc,
+                employee.promotionVc,
+            )
+            for (vcJson in candidates) {
+                try {
+                    @Suppress("UNCHECKED_CAST")
+                    val vc = objectMapper.readValue(vcJson, Map::class.java) as Map<String, Any>
+                    if (vc["id"] == vcId) return vcJson
+                } catch (_: Exception) {}
+            }
+        }
+        return null
+    }
 
     private fun buildPresentationDefinition(session: VpSessionStore.VpSession): Map<String, Any> {
         val fields = session.requestedClaims.map { claim ->

@@ -3,7 +3,11 @@ package com.mpcorp.identity.presentation.controller
 import com.mpcorp.identity.application.usecase.attendance.CheckInUseCase
 import com.mpcorp.identity.application.usecase.attendance.CheckOutUseCase
 import com.mpcorp.identity.application.usecase.attendance.GetAttendanceUseCase
+import com.mpcorp.identity.common.exception.EmployeeNotFoundException
 import com.mpcorp.identity.common.response.ApiResponse
+import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AttendanceJpaRepository
+import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
+import com.mpcorp.identity.infrastructures.persistence.mapper.toDomainEntity
 import com.mpcorp.identity.presentation.security.BearerAuthIdResolver
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.web.bind.annotation.*
@@ -16,6 +20,8 @@ class AttendanceController(
     private val checkInUseCase: CheckInUseCase,
     private val checkOutUseCase: CheckOutUseCase,
     private val getAttendanceUseCase: GetAttendanceUseCase,
+    private val employeeJpaRepository: EmployeeJpaRepository,
+    private val attendanceJpaRepository: AttendanceJpaRepository,
 ) {
     data class CheckInRequest(val location: String? = null, val note: String? = null)
     data class CheckOutRequest(val location: String? = null)
@@ -51,5 +57,27 @@ class AttendanceController(
         val ym = if (year == 0 || month == 0) YearMonth.now() else YearMonth.of(year, month)
         val result = getAttendanceUseCase.execute(authId, ym.year, ym.monthValue)
         return ApiResponse(status = "200", message = "OK", data = result)
+    }
+
+    @GetMapping("/team")
+    fun teamTimesheet(
+        httpRequest: HttpServletRequest,
+        @RequestParam(defaultValue = "0") year: Int,
+        @RequestParam(defaultValue = "0") month: Int,
+    ): ApiResponse<Any> {
+        val authId = bearerAuthIdResolver.resolveAuthId(httpRequest)
+        val manager = employeeJpaRepository.findEmployeeByAuthId(authId) ?: throw EmployeeNotFoundException()
+        val ym = if (year == 0 || month == 0) YearMonth.now() else YearMonth.of(year, month)
+        val records = attendanceJpaRepository.findByManagerIdAndMonth(manager.id!!, ym.year, ym.monthValue)
+        val grouped = records.groupBy { it.employee.id!! }.map { (_, list) ->
+            val emp = list.first().employee
+            mapOf(
+                "employeeId" to emp.id,
+                "employeeName" to (emp.profile?.name ?: emp.auth.email),
+                "department" to emp.department,
+                "records" to list.map { it.toDomainEntity() },
+            )
+        }
+        return ApiResponse(status = "200", message = "OK", data = grouped)
     }
 }

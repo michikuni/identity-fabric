@@ -124,11 +124,14 @@ class IdentityController(
 
         val result = vcIssuerService.verifyVC(vcJson)
 
-        val subject: Map<*, *>? = try {
+        var subject: Map<*, *>? = null
+        var vcType: List<*>? = null
+        try {
             @Suppress("UNCHECKED_CAST")
             val vc = objectMapper.readValue(vcJson, Map::class.java) as Map<String, Any>
-            vc["credentialSubject"] as? Map<*, *>
-        } catch (_: Exception) { null }
+            subject = vc["credentialSubject"] as? Map<*, *>
+            vcType = vc["type"] as? List<*>
+        } catch (_: Exception) {}
 
         return ApiResponse(
             status = "200", message = "OK",
@@ -136,6 +139,7 @@ class IdentityController(
                 put("valid", result.valid)
                 put("reason", result.reason)
                 if (subject != null) put("credentialSubject", subject)
+                if (vcType != null) put("type", vcType)
             },
         )
     }

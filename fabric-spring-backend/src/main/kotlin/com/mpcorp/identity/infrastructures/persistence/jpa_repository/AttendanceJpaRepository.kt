@@ -24,4 +24,17 @@ interface AttendanceJpaRepository : JpaRepository<AttendanceJpaEntity, Long> {
         @Param("year") year: Int,
         @Param("month") month: Int,
     ): List<AttendanceJpaEntity>
+
+    @Query("""
+        SELECT a FROM AttendanceJpaEntity a
+        WHERE a.employee.manager.id = :managerId
+          AND YEAR(a.workDate) = :year
+          AND MONTH(a.workDate) = :month
+        ORDER BY a.employee.id ASC, a.workDate ASC
+    """)
+    fun findByManagerIdAndMonth(
+        @Param("managerId") managerId: Long,
+        @Param("year") year: Int,
+        @Param("month") month: Int,
+    ): List<AttendanceJpaEntity>
 }

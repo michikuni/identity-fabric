@@ -2,11 +2,12 @@ package com.mpcorp.identity.common.exception
 
 import com.mpcorp.identity.common.constant.ErrorMessage
 import com.mpcorp.identity.common.constant.StatusMessage
+import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.annotation.*
-import org.slf4j.LoggerFactory
+import org.springframework.web.server.ResponseStatusException
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
@@ -150,6 +151,18 @@ class GlobalExceptionHandler {
             status = StatusMessage.FAILURE,
             data = HttpStatus.CONFLICT.reasonPhrase,
         )
+    }
+
+    @ExceptionHandler(ResponseStatusException::class)
+    fun handleResponseStatus(ex: ResponseStatusException): org.springframework.http.ResponseEntity<ErrorResponse> {
+        val status = HttpStatus.valueOf(ex.statusCode.value())
+        val body = ErrorResponse(
+            message = ex.reason ?: status.reasonPhrase,
+            code = status.value(),
+            status = StatusMessage.FAILURE,
+            data = status.reasonPhrase,
+        )
+        return org.springframework.http.ResponseEntity.status(status).body(body)
     }
 
     @ExceptionHandler(Exception::class)
