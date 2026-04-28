@@ -19,6 +19,8 @@ import org.springframework.web.server.ResponseStatusException
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 @RestController
@@ -58,6 +60,26 @@ class AdminController(
         val socialInsuranceNumber: String? = null,
         val healthInsuranceNumber: String? = null,
     )
+
+    /** Parse ISO-8601 string linh hoạt → Timestamp. Chấp nhận:
+     *  - "2026-04-28T00:00:00.000" (Flutter toIso8601String không có Z)
+     *  - "2026-04-28T00:00:00Z"    (có Z)
+     *  - "2026-04-28"              (date only)
+     */
+    private fun parseTimestamp(raw: String?): Timestamp? {
+        if (raw == null) return null
+        return try {
+            Timestamp.from(Instant.parse(if (raw.length == 10) "${raw}T00:00:00Z" else raw))
+        } catch (_: Exception) {
+            try {
+                Timestamp.from(LocalDateTime.parse(raw.take(19)).toInstant(ZoneOffset.UTC))
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun Timestamp?.toIsoString(): String? = this?.toInstant()?.toString()
     @GetMapping("/dashboard")
     fun dashboard(): ApiResponse<Any> {
         val totalEmployees = employeeJpaRepository.count()
@@ -158,7 +180,7 @@ class AdminController(
             "bonusSalary" to payroll.bonusSalary,
             "overTimeRate" to payroll.overTimeRate,
             "currency" to payroll.currency,
-            "payDay" to payroll.payDay?.toString(),
+            "payDay" to payroll.payDay.toIsoString(),
             "bankAccountNumber" to payroll.bankAccountNumber,
             "bankAccountName" to payroll.bankAccountName,
             "bankName" to payroll.bankName,
@@ -171,7 +193,7 @@ class AdminController(
         val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
             ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
         }
-        val payDay = if (body.payDay != null) Timestamp.from(Instant.parse(body.payDay)) else Timestamp.from(Instant.now())
+        val payDay = parseTimestamp(body.payDay) ?: Timestamp.from(Instant.now())
         val existing = payrollJpaRepository.findPayrollByEmployeeId(employeeId)
         if (existing != null) {
             existing.salaryType = body.salaryType
@@ -213,14 +235,51 @@ class AdminController(
             ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No contract assigned yet")
         return ApiResponse(status = "200", message = "OK", data = mapOf(
             "typeContract" to contract.typeContract,
-            "startDate" to contract.startDate?.toString(),
-            "endDate" to contract.endDate?.toString(),
-            "probationStartDate" to contract.probationStartDate?.toString(),
-            "probationEndDate" to contract.probationEndDate?.toString(),
+            "startDate" to contract.startDate.toIsoString(),
+            "endDate" to contract.endDate.toIsoString(),
+            "probationStartDate" to contract.probationStartDate.toIsoString(),
+            "probationEndDate" to contract.probationEndDate.toIsoString(),
             "taxCode" to contract.taxCode,
             "socialInsuranceNumber" to contract.socialInsuranceNumber,
             "healthInsuranceNumber" to contract.healthInsuranceNumber,
         ))
+    }
+
+    @PutMapping("/employees/{employeeId}/contract")
+    fun upsertContract(@PathVariable employeeId: Long, @RequestBody body: UpsertContractRequest): ApiResponse<Any> {
+        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
+            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
+        }
+        val startDate = parseTimestamp(body.startDate)
+            ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid startDate")
+        val existing = contractJpaRepository.findContractByEmployeeId(employeeId)
+        if (existing != null) {
+            existing.typeContract = body.typeContract
+            existing.startDate = startDate
+            existing.endDate = parseTimestamp(body.endDate)
+            existing.probationStartDate = parseTimestamp(body.probationStartDate)
+            existing.probationEndDate = parseTimestamp(body.probationEndDate)
+            if (body.taxCode != null) existing.taxCode = body.taxCode
+            if (body.socialInsuranceNumber != null) existing.socialInsuranceNumber = body.socialInsuranceNumber
+            if (body.healthInsuranceNumber != null) existing.healthInsuranceNumber = body.healthInsuranceNumber
+            contractJpaRepository.save(existing)
+        } else {
+            contractJpaRepository.save(
+                com.mpcorp.identity.infrastructures.persistence.jpa_entity.ContractJpaEntity(
+                    employee = employee,
+                    typeContract = body.typeContract,
+                    startDate = startDate,
+                    endDate = parseTimestamp(body.endDate),
+                    contractExpire = null,
+                    probationStartDate = parseTimestamp(body.probationStartDate),
+                    probationEndDate = parseTimestamp(body.probationEndDate),
+                    taxCode = body.taxCode ?: "",
+                    socialInsuranceNumber = body.socialInsuranceNumber,
+                    healthInsuranceNumber = body.healthInsuranceNumber,
+                )
+            )
+        }
+        return ApiResponse(status = "200", message = "Contract saved", data = mapOf("employeeId" to employeeId))
     }
 
     @PutMapping("/accounts/{id}/reject")
