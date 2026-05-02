@@ -22,21 +22,24 @@ class VpSessionStore {
     data class VpSession(
         val state: String,
         val nonce: String,
+        val vcType: String,                  // EmploymentCredential | SalaryRangeCredential | PromotionCredential | TerminationCredential
         val requestedClaims: List<String>,   // fields the Verifier wants disclosed
         val createdAt: Instant = Instant.now(),
         var vpToken: String? = null,         // submitted by Holder
         var verified: Boolean? = null,
         var verifyReason: String? = null,
+        var disclosedFields: Map<String, Any?> = emptyMap(), // actual fields Employee shared
     ) {
         fun isExpired() = Instant.now().isAfter(createdAt.plusSeconds(SESSION_TTL_SECONDS))
     }
 
     private val sessions = ConcurrentHashMap<String, VpSession>()
 
-    fun create(requestedClaims: List<String>): VpSession {
+    fun create(vcType: String, requestedClaims: List<String>): VpSession {
         val session = VpSession(
             state  = UUID.randomUUID().toString(),
             nonce  = UUID.randomUUID().toString(),
+            vcType = vcType,
             requestedClaims = requestedClaims,
         )
         sessions[session.state] = session
@@ -51,10 +54,11 @@ class VpSessionStore {
         return true
     }
 
-    fun saveResult(state: String, verified: Boolean, reason: String) {
+    fun saveResult(state: String, verified: Boolean, reason: String, disclosedFields: Map<String, Any?> = emptyMap()) {
         sessions[state]?.let {
             it.verified = verified
             it.verifyReason = reason
+            it.disclosedFields = disclosedFields
         }
     }
 

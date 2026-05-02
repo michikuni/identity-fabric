@@ -10,11 +10,15 @@ import com.mpcorp.identity.infrastructures.persistence.jpa_entity.AuthJpaEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_entity.EmployeeJpaEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AuthJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
+import com.mpcorp.identity.infrastructures.persistence.jpa_repository.LeaveRequestJpaRepository
 import com.mpcorp.identity.infrastructures.vc.VcIssuerService
+import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.server.ResponseStatusException
 import java.sql.Timestamp
 import java.time.Instant
 
@@ -27,9 +31,11 @@ class ChiefController(
     private val ledgerBridge: FabricLedgerBridge,
     private val passwordEncoder: BCryptPasswordEncoder,
     private val vcIssuerService: VcIssuerService,
+    private val leaveRequestJpaRepository: LeaveRequestJpaRepository,
 ) {
     data class ChangeRoleRequest(val role: String, val position: String? = null)
     data class TerminateRequest(val reason: String)
+    data class AssignManagerRequest(val managerId: Long?)
     data class CreateEmployeeRequest(
         val email: String,
         val phone: String,
@@ -61,6 +67,8 @@ class ChiefController(
                 "role" to emp.auth.role.name,
                 "status" to emp.status,
                 "isActive" to emp.isActive,
+                "managerId" to emp.manager?.id,
+                "managerName" to (emp.manager?.profile?.name ?: emp.manager?.auth?.email),
             )
         }
         return ApiResponse(status = "200", message = "OK", data = filtered)
@@ -136,6 +144,59 @@ class ChiefController(
         employeeJpaRepository.save(emp)
         ledgerBridge.logRequest(id.toString(), "ROLE_CHANGE", body.role, actor)
         return ApiResponse(status = "200", message = "Role updated", data = mapOf("id" to id, "newRole" to body.role))
+    }
+
+    @PutMapping("/employees/{id}/manager")
+    fun assignManager(@PathVariable id: Long, @RequestBody body: AssignManagerRequest): ApiResponse<Any> {
+        val emp = employeeJpaRepository.findById(id).orElseThrow(::EmployeeNotFoundException)
+        val manager = body.managerId?.let {
+            employeeJpaRepository.findById(it).orElseThrow {
+                ResponseStatusException(HttpStatus.NOT_FOUND, "Manager not found")
+            }
+        }
+        emp.manager = manager
+        emp.updatedAt = Timestamp.from(Instant.now())
+        employeeJpaRepository.save(emp)
+        return ApiResponse(
+            status = "200", message = "Manager assigned",
+            data = mapOf(
+                "employeeId" to id,
+                "managerId" to manager?.id,
+                "managerName" to (manager?.profile?.name ?: manager?.auth?.email),
+            )
+        )
+    }
+
+    @Transactional(readOnly = true)
+    @GetMapping("/requests")
+    fun listAllRequests(
+        @RequestParam(defaultValue = "false") pendingOnly: Boolean,
+    ): ApiResponse<Any> {
+        val requests = if (pendingOnly) {
+            leaveRequestJpaRepository.findAll().filter { it.status == "PENDING" }
+        } else {
+            leaveRequestJpaRepository.findAll().sortedByDescending { it.createdAt }
+        }
+        val data = requests.map { r ->
+            mapOf(
+                "id" to r.id,
+                "requestType" to r.requestType,
+                "status" to r.status,
+                "startDate" to r.startDate?.toString(),
+                "endDate" to r.endDate?.toString(),
+                "session" to r.session,
+                "reason" to r.reason,
+                "photoUrl" to r.photoUrl,
+                "approverId" to r.approver?.id,
+                "approverName" to (r.approver?.profile?.name ?: r.approver?.auth?.email),
+                "employeeId" to r.employee?.id,
+                "employeeName" to (r.employee?.profile?.name ?: r.employee?.auth?.email),
+                "approvedAt" to r.approvedAt?.toInstant()?.toString(),
+                "rejectedReason" to r.rejectedReason,
+                "createdAt" to r.createdAt?.toInstant()?.toString(),
+            )
+        }
+        return ApiResponse(status = "200", message = "OK", data = data)
     }
 
     @PutMapping("/employees/{id}/terminate")

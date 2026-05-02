@@ -29,6 +29,11 @@ class Oidc4VpController(
 
     data class VpRequestBody(
         /**
+         * VC type the Verifier wants — must match one of the four supported credentials.
+         * Allowed: EmploymentCredential | SalaryRangeCredential | PromotionCredential | TerminationCredential.
+         */
+        val vcType: String = "EmploymentCredential",
+        /**
          * Fields the Verifier wants disclosed from credentialSubject.
          * e.g. ["employmentStatus"] — only proves employment, nothing else.
          * Default: ["employmentStatus", "position"] if omitted.
@@ -44,7 +49,7 @@ class Oidc4VpController(
      */
     @PostMapping("/vp/request")
     fun createVpRequest(@RequestBody body: VpRequestBody): ApiResponse<Map<String, Any>> {
-        val session = sessionStore.create(body.requestedClaims)
+        val session = sessionStore.create(body.vcType, body.requestedClaims)
         val authRequest = vpService.buildAuthorizationRequest(session)
         return ApiResponse(
             status = "200",
@@ -82,15 +87,16 @@ class Oidc4VpController(
 
         // Verify immediately and cache result
         val result = vpService.verifyVpToken(body.vpToken, session)
-        sessionStore.saveResult(body.state, result.valid, result.reason)
+        sessionStore.saveResult(body.state, result.valid, result.reason, result.disclosedFields)
 
         return ApiResponse(
             status = "200",
             message = if (result.valid) "VP accepted" else "VP rejected",
             data = mapOf(
-                "state"  to body.state,
-                "valid"  to result.valid,
-                "reason" to result.reason,
+                "state"          to body.state,
+                "valid"          to result.valid,
+                "reason"         to result.reason,
+                "disclosedFields" to result.disclosedFields,
             ),
         )
     }
@@ -120,10 +126,11 @@ class Oidc4VpController(
             status = "200",
             message = if (session.verified == true) "VP verified" else "VP rejected",
             data = mapOf(
-                "state"  to state,
-                "status" to if (session.verified == true) "ACCEPTED" else "REJECTED",
-                "valid"  to (session.verified ?: false),
-                "reason" to (session.verifyReason ?: ""),
+                "state"           to state,
+                "status"          to if (session.verified == true) "ACCEPTED" else "REJECTED",
+                "valid"           to (session.verified ?: false),
+                "reason"          to (session.verifyReason ?: ""),
+                "disclosedFields" to session.disclosedFields,
             ),
         )
     }

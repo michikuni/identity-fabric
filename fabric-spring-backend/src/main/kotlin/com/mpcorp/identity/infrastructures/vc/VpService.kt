@@ -40,6 +40,12 @@ class VpService(
         )
     }
 
+    data class VpVerifyResult(
+        val valid: Boolean,
+        val reason: String,
+        val disclosedFields: Map<String, Any?> = emptyMap(),
+    )
+
     /**
      * Verify a submitted VP Token string.
      *
@@ -48,54 +54,82 @@ class VpService(
      * 2. Verify nonce matches the session
      * 3. Extract the embedded VC(s) and verify each via VcIssuerService
      * 4. Check that all requestedClaims are present in the disclosed subject
+     * 5. Return the actual disclosed credentialSubject fields to be shown to Verifier
      */
     @Suppress("UNCHECKED_CAST")
-    fun verifyVpToken(vpTokenJson: String, session: VpSessionStore.VpSession): VcIssuerService.VcVerifyResult {
+    fun verifyVpToken(vpTokenJson: String, session: VpSessionStore.VpSession): VpVerifyResult {
+        fun fail(reason: String) = VpVerifyResult(false, reason)
+
         return try {
             val vp = objectMapper.readValue(vpTokenJson, Map::class.java) as Map<String, Any>
 
             // 1. Check nonce
             val proof = vp["proof"] as? Map<*, *>
-                ?: return VcIssuerService.VcVerifyResult(false, "VP missing proof")
+                ?: return fail("VP missing proof")
             val vpNonce = proof["nonce"] as? String
-                ?: return VcIssuerService.VcVerifyResult(false, "VP proof missing nonce")
+                ?: return fail("VP proof missing nonce")
             if (vpNonce != session.nonce) {
-                return VcIssuerService.VcVerifyResult(false, "Nonce mismatch — possible replay attack")
+                return fail("Nonce mismatch — possible replay attack")
             }
 
             // 2. Extract embedded VC list
             val vcList = vp["verifiableCredential"] as? List<*>
-                ?: return VcIssuerService.VcVerifyResult(false, "VP missing verifiableCredential")
+                ?: return fail("VP missing verifiableCredential")
             if (vcList.isEmpty()) {
-                return VcIssuerService.VcVerifyResult(false, "VP contains no credentials")
+                return fail("VP contains no credentials")
             }
 
             // 3. Verify each VC's proof using the original full VC from DB.
             // The submitted VC may have selective-disclosed (trimmed) credentialSubject,
             // so we look up the canonical VC by its `id` field and verify that instead.
+            // We also keep a reference to the canonical VC's full subject to extract
+            // disclosed field values (avoids any frontend serialization quirks).
+            var canonicalSubject: Map<String, Any?> = emptyMap()
             for (vcRaw in vcList) {
-                @Suppress("UNCHECKED_CAST")
-                val vcMap = vcRaw as? Map<String, Any> ?: continue
+                val vcMap = vcRaw as? Map<*, *> ?: continue
                 val vcId = vcMap["id"] as? String
                 val canonicalJson = if (vcId != null) findVcById(vcId) else null
                 val vcJsonToVerify = canonicalJson ?: objectMapper.writeValueAsString(vcRaw)
                 val result = vcIssuerService.verifyVC(vcJsonToVerify)
-                if (!result.valid) return result
+                if (!result.valid) return fail(result.reason)
+                if (canonicalJson != null && canonicalSubject.isEmpty()) {
+                    val canonicalVc = objectMapper.readValue(canonicalJson, Map::class.java)
+                    canonicalSubject = (canonicalVc["credentialSubject"] as? Map<*, *>)
+                        ?.entries?.associate { (k, v) -> k.toString() to v } ?: emptyMap()
+                }
             }
 
-            // 4. Check that all requestedClaims are disclosed
+            // 4. Check VC type matches the session's expected vcType
             val firstVc = vcList.first() as? Map<*, *>
-            val subject = firstVc?.get("credentialSubject") as? Map<*, *> ?: emptyMap<String, Any>()
-            val missing = session.requestedClaims.filter { claim ->
-                !subject.containsKey(claim)
-            }
-            if (missing.isNotEmpty()) {
-                return VcIssuerService.VcVerifyResult(false, "Missing required claims: $missing")
+                ?: return fail("Missing VC")
+            val vcTypes = firstVc["type"] as? List<*>
+                ?: return fail("VC missing type")
+            if (!vcTypes.contains(session.vcType)) {
+                return fail("VC type mismatch: expected ${session.vcType}, got $vcTypes")
             }
 
-            VcIssuerService.VcVerifyResult(true, "VP valid")
+            // 5. Check that all requestedClaims are disclosed in the submitted VP
+            val submittedSubject = (firstVc["credentialSubject"] as? Map<*, *>)
+                ?.entries?.associate { (k, v) -> k.toString() to v } ?: emptyMap()
+            val missing = session.requestedClaims.filter { claim -> !submittedSubject.containsKey(claim) }
+            if (missing.isNotEmpty()) {
+                return fail("Credential không hợp lệ: thiếu các trường yêu cầu ${missing}")
+            }
+
+            // 6. Build disclosed fields map — prefer canonical VC values (more reliable),
+            // fall back to submitted values if canonical not found.
+            // Use mutableMapOf so Jackson serializes it explicitly as a JSON object (not stripped).
+            val disclosed = mutableMapOf<String, Any?>()
+            for (claim in session.requestedClaims) {
+                val value = canonicalSubject[claim] ?: submittedSubject[claim]
+                if (value != null) {
+                    disclosed[claim] = value
+                }
+            }
+
+            VpVerifyResult(true, "VP valid", disclosed)
         } catch (e: Exception) {
-            VcIssuerService.VcVerifyResult(false, "Parse error: ${e.message}")
+            fail("Parse error: ${e.message}")
         }
     }
 
@@ -124,13 +158,21 @@ class VpService(
         val fields = session.requestedClaims.map { claim ->
             mapOf("path" to listOf("$.credentialSubject.$claim"))
         }
+        val (descriptorId, descriptorName, purpose) = when (session.vcType) {
+            "EmploymentCredential"  -> Triple("pd-trustid-employment",  "TrustID Employment Credential",   "Verify employment status")
+            "SalaryRangeCredential" -> Triple("pd-trustid-salary",      "TrustID Salary Range Credential", "Verify salary band")
+            "PromotionCredential"   -> Triple("pd-trustid-promotion",   "TrustID Promotion Credential",    "Verify promotion record")
+            "TerminationCredential" -> Triple("pd-trustid-termination", "TrustID Termination Credential",  "Verify termination record")
+            else -> throw IllegalArgumentException("Unsupported vcType: ${session.vcType}")
+        }
         return mapOf(
-            "id" to "pd-trustid-employment",
+            "id" to descriptorId,
             "input_descriptors" to listOf(
                 mapOf(
-                    "id"          to "employment-credential",
-                    "name"        to "TrustID Employment Credential",
-                    "purpose"     to "Verify employment status",
+                    "id"          to descriptorId,
+                    "name"        to descriptorName,
+                    "purpose"     to purpose,
+                    "schema"      to mapOf("vcType" to session.vcType),
                     "constraints" to mapOf(
                         "fields" to fields,
                         "limit_disclosure" to "required",

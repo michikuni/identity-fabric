@@ -9,7 +9,10 @@ import org.springframework.stereotype.Service
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
+
+private val VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh")
 
 @Service
 class CheckInUseCase(
@@ -20,10 +23,10 @@ class CheckInUseCase(
     fun execute(authId: UUID, location: String? = null, note: String? = null): AttendanceEntity {
         val employee = employeeRepository.findEmployeeByAuthId(authId) ?: throw EmployeeNotFoundException()
         val now = Timestamp.from(Instant.now())
-        val today = LocalDate.now()
+        val today = LocalDate.now(VN_ZONE)
 
         val existing = attendanceRepository.findTodayByEmployeeId(employee.id!!)
-        if (existing?.checkInTime != null) return existing  // Already checked in
+        if (existing?.checkInTime != null) return existing
 
         val attendance = AttendanceEntity(
             employee = employee,

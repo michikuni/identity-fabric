@@ -30,7 +30,7 @@ class CheckOutUseCase(
             checkInTime = today.checkInTime,
             checkOutTime = now,
             checkInLocation = today.checkInLocation,
-            checkOutLocation = location,
+            checkOutLocation = location ?: today.checkOutLocation,
             status = today.status,
             note = today.note,
             createdAt = today.createdAt,

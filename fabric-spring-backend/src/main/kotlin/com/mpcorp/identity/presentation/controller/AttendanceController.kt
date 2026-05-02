@@ -40,6 +40,21 @@ class AttendanceController(
         return ApiResponse(status = "200", message = "Check-out successful", data = result)
     }
 
+    data class StampRequest(val location: String? = null, val note: String? = null)
+
+    @PostMapping("/stamp")
+    fun stamp(httpRequest: HttpServletRequest, @RequestBody body: StampRequest): ApiResponse<Any> {
+        val authId = bearerAuthIdResolver.resolveAuthId(httpRequest)
+        val existing = getAttendanceUseCase.executeToday(authId)
+        return if (existing?.checkInTime == null) {
+            val result = checkInUseCase.execute(authId, body.location, body.note)
+            ApiResponse(status = "200", message = "Check-in successful", data = mapOf("action" to "CHECK_IN", "record" to result))
+        } else {
+            val result = checkOutUseCase.execute(authId, body.location)
+            ApiResponse(status = "200", message = "Check-out successful", data = mapOf("action" to "CHECK_OUT", "record" to result))
+        }
+    }
+
     @GetMapping("/today")
     fun today(httpRequest: HttpServletRequest): ApiResponse<Any> {
         val authId = bearerAuthIdResolver.resolveAuthId(httpRequest)

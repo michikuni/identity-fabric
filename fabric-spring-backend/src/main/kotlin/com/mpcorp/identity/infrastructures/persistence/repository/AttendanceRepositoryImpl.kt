@@ -10,6 +10,9 @@ import com.mpcorp.identity.infrastructures.persistence.mapper.toDomainEntity
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
+import java.time.ZoneId
+
+private val VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh")
 
 @Service
 class AttendanceRepositoryImpl(
@@ -57,5 +60,5 @@ class AttendanceRepositoryImpl(
         attendanceJpaRepository.findByEmployeeIdAndMonth(employeeId, year, month).map { it.toDomainEntity() }
 
     override fun findTodayByEmployeeId(employeeId: Long): AttendanceEntity? =
-        attendanceJpaRepository.findByEmployeeIdAndWorkDate(employeeId, LocalDate.now())?.toDomainEntity()
+        attendanceJpaRepository.findByEmployeeIdAndWorkDate(employeeId, LocalDate.now(VN_ZONE))?.toDomainEntity()
 }

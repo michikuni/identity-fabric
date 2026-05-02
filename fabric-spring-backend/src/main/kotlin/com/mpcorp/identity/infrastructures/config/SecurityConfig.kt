@@ -33,7 +33,7 @@ class SecurityConfig {
                     "/v3/api-docs/**",
                 ).permitAll()
                     .requestMatchers("/api/v1/ledger/**").hasAnyRole("CHIEF", "ADMIN")
-                    .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                    .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "CHIEF")
                     .requestMatchers("/api/v1/chief/**").hasAnyRole("CHIEF", "ADMIN")
                     .requestMatchers("/api/v1/manager/**").hasAnyRole("MANAGER", "CHIEF", "ADMIN")
                     .anyRequest().authenticated()

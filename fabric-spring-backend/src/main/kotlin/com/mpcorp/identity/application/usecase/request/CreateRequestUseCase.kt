@@ -31,7 +31,7 @@ class CreateRequestUseCase(
         val employee = employeeRepository.findEmployeeByAuthId(authId) ?: throw EmployeeNotFoundException()
         val approver = command.approverId?.let {
             employeeRepository.findEmployeeById(it) ?: throw EmployeeNotFoundException()
-        }
+        } ?: employee.manager
         val now = Timestamp.from(Instant.now())
         val request = LeaveRequestEntity(
             employee = employee,
