@@ -116,7 +116,7 @@ services:
       - CORE_OPERATIONS_LISTENADDRESS=peer0.org1.example.com:9444
       - CORE_METRICS_PROVIDER=prometheus
     volumes:
-      - /run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/host/var/run/docker.sock
       - ./organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp:/etc/hyperledger/fabric/msp
       - ./organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls:/etc/hyperledger/fabric/tls
       - peer0.org1.example.com:/var/hyperledger/production
@@ -151,7 +151,7 @@ services:
       - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
       - CORE_OPERATIONS_LISTENADDRESS=peer1.org1.example.com:9445
     volumes:
-      - /run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/host/var/run/docker.sock
       - ./organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/msp:/etc/hyperledger/fabric/msp
       - ./organizations/peerOrganizations/org1.example.com/peers/peer1.org1.example.com/tls:/etc/hyperledger/fabric/tls
       - peer1.org1.example.com:/var/hyperledger/production
@@ -188,7 +188,7 @@ services:
       - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
       - CORE_OPERATIONS_LISTENADDRESS=peer0.org2.example.com:9446
     volumes:
-      - /run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/host/var/run/docker.sock
       - ./organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/msp:/etc/hyperledger/fabric/msp
       - ./organizations/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls:/etc/hyperledger/fabric/tls
       - peer0.org2.example.com:/var/hyperledger/production
@@ -223,7 +223,7 @@ services:
       - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
       - CORE_OPERATIONS_LISTENADDRESS=peer1.org2.example.com:9447
     volumes:
-      - /run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/host/var/run/docker.sock
       - ./organizations/peerOrganizations/org2.example.com/peers/peer1.org2.example.com/msp:/etc/hyperledger/fabric/msp
       - ./organizations/peerOrganizations/org2.example.com/peers/peer1.org2.example.com/tls:/etc/hyperledger/fabric/tls
       - peer1.org2.example.com:/var/hyperledger/production
@@ -257,7 +257,7 @@ services:
     working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
     command: /bin/bash
     volumes:
-      - /run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/host/var/run/docker.sock
       - ./network/channel-artifacts:/opt/gopath/src/github.com/hyperledger/fabric/peer/channel-artifacts
       - ./organizations:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto
       - ./chaincode:/opt/gopath/src/github.com/chaincode
