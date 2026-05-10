@@ -98,6 +98,7 @@ services:
     environment:
       - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
+      - DOCKER_API_VERSION=1.40
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -136,6 +137,7 @@ services:
     environment:
       - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
+      - DOCKER_API_VERSION=1.40
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -175,6 +177,7 @@ services:
     environment:
       - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
+      - DOCKER_API_VERSION=1.40
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
@@ -212,6 +215,7 @@ services:
     environment:
       - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
+      - DOCKER_API_VERSION=1.40
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
       - CORE_PEER_PROFILE_ENABLED=false
