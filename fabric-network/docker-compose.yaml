@@ -96,7 +96,7 @@ services:
     image: hyperledger/fabric-peer:2.5.4
     container_name: peer0.org1.example.com
     environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
@@ -132,7 +132,7 @@ services:
     image: hyperledger/fabric-peer:2.5.4
     container_name: peer1.org1.example.com
     environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
@@ -169,7 +169,7 @@ services:
     image: hyperledger/fabric-peer:2.5.4
     container_name: peer0.org2.example.com
     environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
@@ -204,7 +204,7 @@ services:
     image: hyperledger/fabric-peer:2.5.4
     container_name: peer1.org2.example.com
     environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_network
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_TLS_ENABLED=true
@@ -244,7 +244,7 @@ services:
     stdin_open: true
     environment:
       - GOPATH=/opt/gopath
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_ENDPOINT=tcp://host-gateway:2375
       - FABRIC_LOGGING_SPEC=INFO
       - CORE_PEER_ID=cli
       - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
