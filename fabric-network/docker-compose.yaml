@@ -122,6 +122,8 @@ services:
       - peer0.org1.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
+    extra_hosts:
+      - "host-gateway:host-gateway"
     ports:
       - "7051:7051"
       - "9444:9444"
@@ -157,6 +159,8 @@ services:
       - peer1.org1.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
+    extra_hosts:
+      - "host-gateway:host-gateway"
     ports:
       - "8051:8051"
       - "9445:9445"
@@ -194,6 +198,8 @@ services:
       - peer0.org2.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
+    extra_hosts:
+      - "host-gateway:host-gateway"
     ports:
       - "9051:9051"
       - "9446:9446"
@@ -229,6 +235,8 @@ services:
       - peer1.org2.example.com:/var/hyperledger/production
     working_dir: /root
     command: peer node start
+    extra_hosts:
+      - "host-gateway:host-gateway"
     ports:
       - "10051:10051"
       - "9447:9447"
