@@ -237,10 +237,18 @@ public final class IdentityLedger implements ContractInterface {
      */
     @Transaction(intent = Transaction.TYPE.EVALUATE)
     public String GetAllRecords(final Context ctx) {
-        QueryResultsIterator<KeyValue> results = ctx.getStub().getStateByRange("", "");
+        ChaincodeStub stub = ctx.getStub();
         List<IdentityRecord> records = new ArrayList<>();
-        for (KeyValue kv : results) {
-            records.add(genson.deserialize(kv.getStringValue(), IdentityRecord.class));
+        for (String prefix : new String[] { "profile:", "contract:", "payroll:" }) {
+            // getStateByRange with prefix trick: end = prefix with last char incremented
+            String endKey = prefix.substring(0, prefix.length() - 1) + (char)(prefix.charAt(prefix.length() - 1) + 1);
+            QueryResultsIterator<KeyValue> results = stub.getStateByRange(prefix, endKey);
+            for (KeyValue kv : results) {
+                String json = kv.getStringValue();
+                if (json != null && !json.isEmpty()) {
+                    records.add(genson.deserialize(json, IdentityRecord.class));
+                }
+            }
         }
         return genson.serialize(records);
     }
