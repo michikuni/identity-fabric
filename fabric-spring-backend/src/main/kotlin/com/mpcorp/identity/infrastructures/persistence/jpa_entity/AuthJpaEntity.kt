@@ -40,7 +40,7 @@ data class AuthJpaEntity (
 
     // Account lockout
     @Column(name = "failed_login_attempts")
-    var failedLoginAttempts: Int = 0,
+    var failedLoginAttempts: Int? = 0,
 
     @Column(name = "locked_until")
     var lockedUntil: java.sql.Timestamp? = null,

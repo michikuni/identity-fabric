@@ -51,8 +51,8 @@ class SignInUseCase(
 
         if (!passwordEncoder.matches(signInCommand.password, user.password)) {
             // Increment failed attempts
-            jpaUser.failedLoginAttempts += 1
-            if (jpaUser.failedLoginAttempts >= MAX_ATTEMPTS) {
+            jpaUser.failedLoginAttempts = (jpaUser.failedLoginAttempts ?: 0) + 1
+            if ((jpaUser.failedLoginAttempts ?: 0) >= MAX_ATTEMPTS) {
                 jpaUser.lockedUntil = Timestamp.from(Instant.now().plusSeconds(LOCK_MINUTES * 60))
                 jpaUser.failedLoginAttempts = 0
             }
@@ -61,7 +61,7 @@ class SignInUseCase(
         }
 
         // Successful login — reset lockout counters
-        if (jpaUser.failedLoginAttempts > 0 || jpaUser.lockedUntil != null) {
+        if ((jpaUser.failedLoginAttempts ?: 0) > 0 || jpaUser.lockedUntil != null) {
             jpaUser.failedLoginAttempts = 0
             jpaUser.lockedUntil = null
             authJpaRepository.save(jpaUser)
