@@ -10,6 +10,9 @@ interface EmployeeJpaRepository : JpaRepository<EmployeeJpaEntity, Long>{
     @Query("SELECT * FROM employee WHERE auth_id = :id", nativeQuery = true)
     fun findEmployeeByAuthId(id: UUID): EmployeeJpaEntity?
 
+    @Query("SELECT e.* FROM employee e JOIN auth a ON e.auth_id = a.id WHERE a.email = :email", nativeQuery = true)
+    fun findEmployeeByAuthEmail(email: String): EmployeeJpaEntity?
+
     @Modifying
     @Query("DELETE FROM employee WHERE auth_id = :id", nativeQuery = true)
     fun deleteEmployeeByAuthId(id: UUID)

@@ -8,5 +8,6 @@ interface EmployeeRepository {
     fun findEmployeeById(id: Long): EmployeeEntity?
     fun findEmployeeByAuthId(id: UUID): EmployeeEntity?
     fun updateEmployeeByAuthId(employee: EmployeeEntity): EmployeeEntity
+    fun updatePublicKey(authId: UUID, publicKey: String): EmployeeEntity
     fun deleteEmployeeByAuthId(id: UUID)
 }

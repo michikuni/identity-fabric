@@ -1,3 +1,0 @@
-1. Khi quét QR bị lỗi sau: Sau khi tạo Yêu cầu VP trong tab Verifier và user khác quét bằng quét QR trong tab Wallet để quét, sau khi user xác nhận chia sẻ thông tin và báo , và bấm vào nút Bước 5 - Kiểm tra kết quả đã báo thành công rồi nhưng lại báo VP được Verifier chấp nhận, sau đó bấm nút Bước 5 - Kiểm tra kết quả đã báo Employee đã gửi VP - Đã xác minh hợp lệ nhưng popup lại hiện Employee đã xác nhận nhưng không có trường nào được chia sẻ mặc dù từ request đến xác nhận đều đã chọn nhiều trường khác nhau rồi. Yêu cầu: Phải hiển thị đúng các trường được chọn và chia sẻ
-2. Hiện tại chưa thể phân công manager, nghi vấn cho chưa có api để phân công. Yêu cầu: Kiểm tra và sửa lỗi
-3. Ở màn chief vẫn chưa được duyệt tài khoản như admin

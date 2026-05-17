@@ -17,11 +17,11 @@ class SignUpUseCase (
     private val passwordEncoder: BCryptPasswordEncoder,
 ){
     fun execute(signUpCommand: SignUpCommand) : String {
-        val phone = authRepository.findByUsername(signUpCommand.phone)
-        val email = authRepository.findByUsername(signUpCommand.email)
-
-        if (phone != null || email != null) {
-            throw UserAlreadyExistingException()
+        if (authRepository.findByUsername(signUpCommand.phone) != null) {
+            throw UserAlreadyExistingException("Số điện thoại đã được sử dụng")
+        }
+        if (authRepository.findByUsername(signUpCommand.email) != null) {
+            throw UserAlreadyExistingException("Email đã được sử dụng")
         }
         val userCreated = authRepository.create(
             AuthEntity(

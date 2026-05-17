@@ -195,8 +195,10 @@ class AdminController(
         // Admin chỉ approve — backend tự lấy key từ DB
         val employee = employeeJpaRepository.findEmployeeByAuthId(uuid)
         if (employee != null) {
-            // Issue DID on Fabric (async)
+            // Issue DID on Fabric (async) and persist DID into DB immediately
+            // (DID is deterministic: did:fabric:trustid:<employeeId>)
             if (!employee.publicKey.isNullOrBlank()) {
+                employee.did = "did:fabric:trustid:${employee.id}"
                 fabricBridge.registerDID(
                     employeeId   = employee.id.toString(),
                     publicKeyJwk = employee.publicKey!!,
@@ -220,15 +222,14 @@ class AdminController(
 
     /**
      * Issue SalaryRangeVC dựa trên payroll hiện tại của nhân viên.
-     * PUT /api/v1/admin/employees/{employeeId}/issue-salary-vc
+     * PUT /api/v1/admin/employees/issue-salary-vc?email=...
      */
-    @PutMapping("/employees/{employeeId}/issue-salary-vc")
-    fun issueSalaryRangeVC(@PathVariable employeeId: Long): ApiResponse<Any> {
-        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
-            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
-        }
-        val payroll = payrollJpaRepository.findPayrollByEmployeeId(employeeId)
-            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No payroll found for employee — assign payroll first")
+    @PutMapping("/employees/issue-salary-vc")
+    fun issueSalaryRangeVC(@RequestParam email: String): ApiResponse<Any> {
+        val employee = employeeJpaRepository.findEmployeeByAuthEmail(email)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy nhân viên với email: $email")
+        val payroll = payrollJpaRepository.findPayrollByEmployeeId(employee.id!!)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Nhân viên chưa có payroll — vui lòng gán payroll trước")
 
         val vc = vcIssuerService.issueSalaryRangeVC(
             employee   = employee,
@@ -237,7 +238,7 @@ class AdminController(
         )
         employee.salaryRangeVc = vc
         employeeJpaRepository.save(employee)
-        return ApiResponse(status = "200", message = "SalaryRangeVC issued", data = mapOf("employeeId" to employeeId))
+        return ApiResponse(status = "200", message = "SalaryRangeVC issued", data = mapOf("email" to email))
     }
 
     // ── Payroll management by employeeId ─────────────────────────────────────

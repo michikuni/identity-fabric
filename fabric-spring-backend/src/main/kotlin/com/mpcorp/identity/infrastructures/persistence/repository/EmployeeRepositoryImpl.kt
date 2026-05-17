@@ -69,6 +69,12 @@ class EmployeeRepositoryImpl(
         return employeeJpaRepository.save(existingEmployee).toDomainEntity()
     }
 
+    override fun updatePublicKey(authId: UUID, publicKey: String): EmployeeEntity {
+        val existing = employeeJpaRepository.findEmployeeByAuthId(authId) ?: throw EmployeeNotFoundException()
+        existing.publicKey = publicKey
+        return employeeJpaRepository.save(existing).toDomainEntity()
+    }
+
     @Transactional
     override fun deleteEmployeeByAuthId(id: UUID) {
         employeeJpaRepository.deleteEmployeeByAuthId(id)

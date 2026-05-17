@@ -9,6 +9,10 @@ import com.mpcorp.identity.application.usecase.employee.UpdateCurrentEmployeeUse
 import com.mpcorp.identity.common.constant.ErrorCodes
 import com.mpcorp.identity.common.constant.StatusMessage
 import com.mpcorp.identity.common.exception.EmployeeNotFoundException
+import com.mpcorp.identity.infrastructures.fabric.FabricLedgerBridge
+import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
+import com.mpcorp.identity.infrastructures.vc.StatusListService
+import com.mpcorp.identity.infrastructures.vc.VcIssuerService
 import com.mpcorp.identity.presentation.api.EmployeeApi
 import com.mpcorp.identity.presentation.mapper.toDto
 import com.mpcorp.identity.presentation.mapper.toModel
@@ -27,9 +31,13 @@ class EmployeeController(
     private val getCurrentEmployeeUseCase: GetCurrentEmployeeUseCase,
     private val updateCurrentEmployeeUseCase: UpdateCurrentEmployeeUseCase,
     private val deleteCurrentEmployeeUseCase: DeleteCurrentEmployeeUseCase,
+    private val employeeJpaRepository: EmployeeJpaRepository,
+    private val fabricBridge: FabricLedgerBridge,
+    private val vcIssuerService: VcIssuerService,
+    private val statusListService: StatusListService,
 ) : EmployeeApi {
     override fun create(httpRequest: HttpServletRequest, request: CreateEmployeeRequest): EmployeeResponse {
-        bearerAuthIdResolver.resolveAuthId(httpRequest)
+        val authId = bearerAuthIdResolver.resolveAuthId(httpRequest)
         val username = currentUsername()
         val employee = createCurrentEmployeeUseCase.execute(
             username = username,
@@ -45,6 +53,23 @@ class EmployeeController(
                 publicKeyJwk = request.publicKeyJwk,
             )
         )
+
+        // Trigger DID registration + EmploymentVC khi publicKey được nộp lần đầu
+        if (!request.publicKeyJwk.isNullOrBlank()) {
+            val emp = employeeJpaRepository.findEmployeeByAuthId(authId)
+            if (emp != null && emp.employmentVc == null) {
+                if (!emp.publicKey.isNullOrBlank()) {
+                    fabricBridge.registerDID(
+                        employeeId = emp.id.toString(),
+                        publicKeyJwk = emp.publicKey!!,
+                        approvedBy = username,
+                    )
+                }
+                emp.id?.let { statusListService.activate(it, updatedBy = username) }
+                emp.employmentVc = vcIssuerService.issueEmploymentVC(emp)
+                employeeJpaRepository.save(emp)
+            }
+        }
 
         return EmployeeResponse(
             status = ErrorCodes.CREATE_SUCCESS,

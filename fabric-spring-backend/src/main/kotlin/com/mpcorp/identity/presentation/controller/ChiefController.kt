@@ -77,39 +77,62 @@ class ChiefController(
     }
 
     @PostMapping("/employees")
+    @org.springframework.transaction.annotation.Transactional
     fun createEmployee(@RequestBody body: CreateEmployeeRequest): ApiResponse<Any> {
         val actor = SecurityContextHolder.getContext().authentication?.name ?: "system"
-        // Chỉ chặn nếu tài khoản cũ còn ACTIVE (nhân viên đang làm)
-        // Cho phép tạo lại nếu tài khoản cũ đã bị terminate (isActive = false)
-        fun isActiveAccount(username: String): Boolean {
-            val auth = authJpaRepository.findUserByPhoneOrEmail(username) ?: return false
-            val emp = employeeJpaRepository.findAll().find { it.auth.id == auth.id }
-            return emp?.isActive != false
+        val now = Timestamp.from(Instant.now())
+
+        val byEmail = authJpaRepository.findUserByPhoneOrEmail(body.email)
+        val byPhone = authJpaRepository.findUserByPhoneOrEmail(body.phone)
+
+        // Chặn nếu tài khoản ACTIVE đã có employee đang làm việc
+        listOfNotNull(byEmail, byPhone).distinctBy { it.id }.forEach { existingAuth ->
+            if (existingAuth.accountStatus == AccountStatus.ACTIVE) {
+                val existingEmp = employeeJpaRepository.findEmployeeByAuthId(existingAuth.id!!)
+                if (existingEmp?.isActive == true) throw UserAlreadyExistingException()
+            }
         }
-        if (isActiveAccount(body.email) || isActiveAccount(body.phone)) {
-            throw UserAlreadyExistingException()
-        }
-        val auth = authJpaRepository.save(AuthJpaEntity(
+
+        // Kích hoạt tài khoản PENDING hoặc tạo tài khoản mới ACTIVE
+        val auth = (byEmail ?: byPhone)?.let { existing ->
+            existing.accountStatus = AccountStatus.ACTIVE
+            existing.role = EmployeeRole.valueOf(body.role.uppercase())
+            authJpaRepository.save(existing)
+        } ?: authJpaRepository.save(AuthJpaEntity(
             email = body.email,
             phone = body.phone,
             password = passwordEncoder.encode(body.password),
             role = EmployeeRole.valueOf(body.role.uppercase()),
             accountStatus = AccountStatus.ACTIVE,
         ))
-        val now = Timestamp.from(Instant.now())
-        val emp = employeeJpaRepository.save(EmployeeJpaEntity(
-            auth = auth,
-            department = body.department,
-            position = body.position,
-            status = "ACTIVE",
-            workingType = body.workingType,
-            isActive = true,
-            manager = null,
-            createdAt = now,
-            updatedAt = now,
-            createdBy = actor,
-            note = body.note,
-        ))
+
+        // Tạo mới hoặc kích hoạt lại employee profile
+        val existingEmp = employeeJpaRepository.findEmployeeByAuthId(auth.id!!)
+        val emp = if (existingEmp != null) {
+            existingEmp.department = body.department
+            existingEmp.position = body.position
+            existingEmp.status = "ACTIVE"
+            existingEmp.isActive = true
+            existingEmp.workingType = body.workingType
+            existingEmp.updatedAt = now
+            existingEmp.note = body.note
+            employeeJpaRepository.save(existingEmp)
+        } else {
+            employeeJpaRepository.save(EmployeeJpaEntity(
+                auth = auth,
+                department = body.department,
+                position = body.position,
+                status = "ACTIVE",
+                workingType = body.workingType,
+                isActive = true,
+                manager = null,
+                createdAt = now,
+                updatedAt = now,
+                createdBy = actor,
+                note = body.note,
+            ))
+        }
+
         ledgerBridge.logRequest(emp.id.toString(), "EMPLOYEE_CREATE", "CREATE", actor)
         return ApiResponse(
             status = "201", message = "Employee created",

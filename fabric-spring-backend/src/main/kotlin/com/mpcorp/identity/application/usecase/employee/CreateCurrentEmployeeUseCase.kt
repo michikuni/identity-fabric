@@ -20,8 +20,16 @@ class CreateCurrentEmployeeUseCase(
 ) {
     fun execute(username: String, command: CreateEmployeeCommand): GetEmployeeResponseCommand {
         val auth = authRepository.findByUsername(username) ?: throw EmployeeNotFoundException()
-        if (auth.id != null && employeeRepository.findEmployeeByAuthId(auth.id!!) != null) {
-            throw EmployeeAlreadyExistingException()
+        if (auth.id != null) {
+            val existing = employeeRepository.findEmployeeByAuthId(auth.id!!)
+            if (existing != null) {
+                // Cho phép employee nộp publicKey nếu profile đã được admin/chief tạo trước
+                // nhưng chưa có publicKey (onboarding sau khi được tạo bởi admin)
+                if (existing.publicKey == null && command.publicKeyJwk != null) {
+                    return employeeRepository.updatePublicKey(auth.id!!, command.publicKeyJwk).toGetEmployeeResponseCommand()
+                }
+                throw EmployeeAlreadyExistingException()
+            }
         }
         val now = Timestamp.from(Instant.now())
         val manager = command.manager?.resolveEmployee(employeeRepository)
