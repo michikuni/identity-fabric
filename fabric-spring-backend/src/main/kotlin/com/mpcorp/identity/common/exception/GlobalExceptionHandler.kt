@@ -4,6 +4,7 @@ import com.mpcorp.identity.common.constant.ErrorMessage
 import com.mpcorp.identity.common.constant.StatusMessage
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.dao.IncorrectResultSizeDataAccessException
 import org.springframework.http.HttpStatus
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.annotation.*
@@ -138,6 +139,18 @@ class GlobalExceptionHandler {
             code = HttpStatus.BAD_REQUEST.value(),
             status = StatusMessage.FAILURE,
             data = HttpStatus.BAD_REQUEST.reasonPhrase,
+        )
+    }
+
+    @ExceptionHandler(IncorrectResultSizeDataAccessException::class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    fun handleIncorrectResultSize(ex: IncorrectResultSizeDataAccessException): ErrorResponse {
+        logger.warn("Duplicate records found", ex)
+        return ErrorResponse(
+            message = ErrorMessage.USER_ALREADY_EXISTS,
+            code = HttpStatus.CONFLICT.value(),
+            status = StatusMessage.FAILURE,
+            data = HttpStatus.CONFLICT.reasonPhrase,
         )
     }
 
