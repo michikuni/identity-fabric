@@ -59,7 +59,7 @@ dependencies {
 	// TOTP 2FA (RFC 6238 — Google Authenticator compatible)
 	implementation("dev.samstevens.totp:totp:1.7.1")
 	// Rate Limiting (Bucket4j in-memory token bucket)
-	implementation("com.github.bucket4j:bucket4j-core:8.10.1")
+	implementation("com.bucket4j:bucket4j-core:8.10.1")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-security-test")
