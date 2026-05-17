@@ -145,7 +145,7 @@ class GdprController(
             val empId = employee.id!!
 
             // 1. Revoke all VCs via Status List
-            runCatching { statusListService.revoke(empId, updatedBy = auth.email) }
+            runCatching { statusListService.revoke(empId, revokedBy = auth.email) }
 
             // 2. RevokeDID on Fabric
             if (!employee.did.isNullOrBlank()) {

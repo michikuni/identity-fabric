@@ -12,7 +12,7 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * RateLimitFilter — Bucket4j token-bucket rate limiter for /auth/* endpoints.
+ * RateLimitFilter — Bucket4j token-bucket rate limiter for /api/v1/auth/ endpoints.
  *
  * Policy: 10 requests / minute / IP.
  * Exceeding the limit → HTTP 429 Too Many Requests.
