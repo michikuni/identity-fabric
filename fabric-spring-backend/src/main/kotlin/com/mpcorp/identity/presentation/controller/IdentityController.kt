@@ -95,6 +95,32 @@ class IdentityController(
     }
 
     /**
+     * GET /api/v1/identity/vc/training/{employeeId}
+     */
+    @GetMapping("/vc/training/{employeeId}")
+    fun getTrainingVC(@PathVariable employeeId: Long): ApiResponse<Map<String, String>> {
+        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
+            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
+        }
+        val vc = employee.trainingVc
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "TrainingVC not issued yet")
+        return ApiResponse(status = "200", message = "OK", data = mapOf("vc" to vc))
+    }
+
+    /**
+     * GET /api/v1/identity/vc/nda/{employeeId}
+     */
+    @GetMapping("/vc/nda/{employeeId}")
+    fun getNdaAcceptedVC(@PathVariable employeeId: Long): ApiResponse<Map<String, String>> {
+        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
+            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
+        }
+        val vc = employee.ndaAcceptedVc
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "NDA-AcceptedVC not issued yet")
+        return ApiResponse(status = "200", message = "OK", data = mapOf("vc" to vc))
+    }
+
+    /**
      * Verify một VC — Verifier gửi VC JSON lên để check chữ ký và expiry.
      * POST /api/v1/identity/vc/verify
      */
@@ -151,6 +177,8 @@ class IdentityController(
                 employee.terminationVc,
                 employee.salaryRangeVc,
                 employee.promotionVc,
+                employee.trainingVc,
+                employee.ndaAcceptedVc,
             )
             for (vcJson in candidates) {
                 try {

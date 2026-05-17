@@ -365,6 +365,244 @@ public final class IdentityLedger implements ContractInterface {
         return genson.deserialize(json, DIDDocument.class);
     }
 
+    // ─── Status List 2021 — VC Revocation ────────────────────────────────────
+
+    /**
+     * Updates a single entry in a W3C Status List 2021 bitstring.
+     *
+     * The bitstring is stored as a base64url-encoded gzip-compressed byte array
+     * (computed by the backend). On-chain we only store the current encoded
+     * bitstring + metadata for immutability and history.
+     *
+     * @param ctx              transaction context
+     * @param listId           unique identifier of the status list, e.g. "employment-status-list-1"
+     * @param encodedList      base64url(gzip(bitstring)) — the full updated list payload
+     * @param size             total capacity (in bits) of this list
+     * @param updatedIndex     the entry index just toggled (for audit only)
+     * @param revoked          true if entry now revoked, false if reactivated
+     * @param timestamp        ISO-8601 UTC timestamp
+     * @param updatedBy        actor performing the update
+     * @return StatusListRecord stored on-chain
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public StatusListRecord UpdateStatusListEntry(
+            final Context ctx,
+            final String listId,
+            final String encodedList,
+            final long size,
+            final long updatedIndex,
+            final boolean revoked,
+            final String timestamp,
+            final String updatedBy) {
+
+        ChaincodeStub stub = ctx.getStub();
+        if (listId == null || listId.isEmpty()) {
+            throw new ChaincodeException("listId is required", LedgerErrors.INVALID_ARGUMENT.toString());
+        }
+        if (encodedList == null) {
+            throw new ChaincodeException("encodedList is required", LedgerErrors.INVALID_ARGUMENT.toString());
+        }
+
+        String key = "statuslist:" + listId;
+        StatusListRecord record = new StatusListRecord(
+                listId, encodedList, size, updatedIndex, revoked, timestamp, updatedBy);
+
+        stub.putStringState(key, genson.serialize(record));
+        stub.setEvent("StatusListUpdated", genson.serialize(record).getBytes());
+
+        System.out.printf("[IdentityLedger] StatusList %s entry=%d revoked=%b by=%s%n",
+                listId, updatedIndex, revoked, updatedBy);
+        return record;
+    }
+
+    /**
+     * Returns the latest StatusListRecord for the given listId.
+     * Used by Verifiers to check the revocation state of a VC referencing this list.
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public StatusListRecord GetStatusList(final Context ctx, final String listId) {
+        String key = "statuslist:" + listId;
+        String json = ctx.getStub().getStringState(key);
+        if (json == null || json.isEmpty()) {
+            throw new ChaincodeException(
+                    "Status list not found: " + listId, LedgerErrors.RECORD_NOT_FOUND.toString());
+        }
+        return genson.deserialize(json, StatusListRecord.class);
+    }
+
+    // ─── Trust Registry ──────────────────────────────────────────────────────
+
+    /**
+     * Registers a trusted credential issuer in the on-chain Trust Registry.
+     * Governance role: CHIEF (enforced at the backend layer, not here).
+     *
+     * @param ctx          transaction context
+     * @param did          Issuer DID, e.g. "did:fabric:trustid:org1"
+     * @param name         Human-readable name, e.g. "MpCorp HR Issuer"
+     * @param role         Issuer role, e.g. "ISSUER" or "ROOT_CA"
+     * @param scope        Credential types this issuer is authorized to issue
+     * @param registeredBy DID or email of the actor registering this issuer
+     * @param timestamp    ISO-8601 UTC registration time
+     * @return JSON of the stored issuer record
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public String RegisterIssuer(
+            final Context ctx,
+            final String did,
+            final String name,
+            final String role,
+            final String scope,
+            final String registeredBy,
+            final String timestamp) {
+
+        ChaincodeStub stub = ctx.getStub();
+        if (did == null || did.isEmpty()) {
+            throw new ChaincodeException("did is required", LedgerErrors.INVALID_ARGUMENT.toString());
+        }
+
+        String key = "trustregistry:" + did;
+        String record = String.format(
+            "{\"did\":\"%s\",\"name\":\"%s\",\"role\":\"%s\",\"scope\":\"%s\","
+            + "\"active\":true,\"registeredBy\":\"%s\",\"registeredAt\":\"%s\",\"revokedAt\":null}",
+            did, name, role, scope, registeredBy, timestamp);
+
+        stub.putStringState(key, record);
+        stub.setEvent("IssuerRegistered", record.getBytes());
+        System.out.printf("[IdentityLedger] RegisterIssuer did=%s name=%s%n", did, name);
+        return record;
+    }
+
+    /**
+     * Revokes a trusted issuer — sets active=false.
+     * Existing VCs from this issuer remain on ledger (audit), but verifiers
+     * should treat them as untrusted after revocation.
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public String RevokeIssuer(
+            final Context ctx,
+            final String did,
+            final String revokedBy,
+            final String timestamp) {
+
+        ChaincodeStub stub = ctx.getStub();
+        String key = "trustregistry:" + did;
+        String existing = stub.getStringState(key);
+        if (existing == null || existing.isEmpty()) {
+            throw new ChaincodeException("Issuer not found: " + did, LedgerErrors.RECORD_NOT_FOUND.toString());
+        }
+
+        // Replace active flag and append revokedAt (simple string surgery — avoids full JSON parse)
+        String updated = existing
+            .replace("\"active\":true", "\"active\":false")
+            .replace("\"revokedAt\":null", "\"revokedAt\":\"" + timestamp + "\"");
+
+        stub.putStringState(key, updated);
+        stub.setEvent("IssuerRevoked", updated.getBytes());
+        System.out.printf("[IdentityLedger] RevokeIssuer did=%s by=%s%n", did, revokedBy);
+        return updated;
+    }
+
+    /**
+     * Returns true if the given issuer DID is registered and currently active.
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public boolean IsTrustedIssuer(final Context ctx, final String did) {
+        String key = "trustregistry:" + did;
+        String json = ctx.getStub().getStringState(key);
+        if (json == null || json.isEmpty()) return false;
+        return json.contains("\"active\":true");
+    }
+
+    /**
+     * Returns all entries in the Trust Registry as a JSON array.
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public String ListTrustedIssuers(final Context ctx) {
+        ChaincodeStub stub = ctx.getStub();
+        String prefix = "trustregistry:";
+        String endKey = "trustregistry;"; // ';' = ':' + 1 in ASCII
+        QueryResultsIterator<KeyValue> results = stub.getStateByRange(prefix, endKey);
+
+        List<String> entries = new ArrayList<>();
+        for (KeyValue kv : results) {
+            String json = kv.getStringValue();
+            if (json != null && !json.isEmpty()) {
+                entries.add(json);
+            }
+        }
+        return "[" + String.join(",", entries) + "]";
+    }
+
+    // ─── E-sign Contract ──────────────────────────────────────────────────────
+
+    /**
+     * Anchors an ECDSA P-256 contract signature on-chain.
+     *
+     * The actual PDF bytes stay off-chain; only the SHA-256 hash is stored here
+     * for tamper-detection. Any party can later verify:
+     *   1. Re-hash the PDF → must match docHash on-chain.
+     *   2. Resolve signerDid → get publicKeyJwk → verify ECDSA P-256 signature.
+     *
+     * @param ctx             transaction context
+     * @param contractId      identifier of the off-chain contract record
+     * @param signerDid       DID of the signer (employee or manager)
+     * @param signatureBase64 Base64-encoded ECDSA P-256 signature
+     * @param docHash         Hex SHA-256 of the document bytes that were signed
+     * @param timestamp       ISO-8601 UTC signing time
+     * @param updatedBy       actor (email / employeeId)
+     * @return JSON of the stored signature record
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public String RecordSignature(
+            final Context ctx,
+            final String contractId,
+            final String signerDid,
+            final String signatureBase64,
+            final String docHash,
+            final String timestamp,
+            final String updatedBy) {
+
+        ChaincodeStub stub = ctx.getStub();
+        if (contractId == null || contractId.isEmpty()) {
+            throw new ChaincodeException("contractId is required", LedgerErrors.INVALID_ARGUMENT.toString());
+        }
+
+        // Key includes signerDid so multiple parties can sign the same contract
+        String key = "signature:" + contractId + ":" + signerDid;
+        String record = String.format(
+            "{\"contractId\":\"%s\",\"signerDid\":\"%s\","
+            + "\"signatureBase64\":\"%s\",\"docHash\":\"%s\","
+            + "\"signedAt\":\"%s\",\"updatedBy\":\"%s\"}",
+            contractId, signerDid, signatureBase64, docHash, timestamp, updatedBy);
+
+        stub.putStringState(key, record);
+        stub.setEvent("ContractSigned", record.getBytes());
+        System.out.printf("[IdentityLedger] RecordSignature contractId=%s signer=%s%n", contractId, signerDid);
+        return record;
+    }
+
+    /**
+     * Returns all signature records for a given contractId as a JSON array.
+     * Multiple signers (employee + manager) may appear.
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public String GetSignatures(final Context ctx, final String contractId) {
+        ChaincodeStub stub = ctx.getStub();
+        String prefix = "signature:" + contractId + ":";
+        // end key: replace last char of prefix with next ASCII char
+        String endKey = "signature:" + contractId + ";";
+        QueryResultsIterator<KeyValue> results = stub.getStateByRange(prefix, endKey);
+
+        List<String> entries = new ArrayList<>();
+        for (KeyValue kv : results) {
+            String json = kv.getStringValue();
+            if (json != null && !json.isEmpty()) {
+                entries.add(json);
+            }
+        }
+        return "[" + String.join(",", entries) + "]";
+    }
+
     // ─── Verify hash integrity ────────────────────────────────────────────────
 
     /**

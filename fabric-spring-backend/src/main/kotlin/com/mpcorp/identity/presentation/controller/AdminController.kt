@@ -11,6 +11,7 @@ import com.mpcorp.identity.infrastructures.persistence.jpa_repository.ContractJp
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.LeaveRequestJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.PayrollJpaRepository
+import com.mpcorp.identity.infrastructures.vc.StatusListService
 import com.mpcorp.identity.infrastructures.vc.VcIssuerService
 import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
@@ -33,6 +34,7 @@ class AdminController(
     private val authRepository: AuthRepository,
     private val fabricBridge: FabricLedgerBridge,
     private val vcIssuerService: VcIssuerService,
+    private val statusListService: StatusListService,
     private val payrollJpaRepository: PayrollJpaRepository,
     private val contractJpaRepository: ContractJpaRepository,
 ) {
@@ -101,6 +103,74 @@ class AdminController(
         )
     }
 
+    /**
+     * Issuer Console KPIs — SSI-flavored metrics for Phase 0 / 3.3.
+     * Aggregated from existing data:
+     *  - credentialsIssued   = count of employees with any non-null VC field
+     *  - employmentVcCount   = employees with employment VC
+     *  - salaryVcCount       = employees with salary range VC
+     *  - promotionVcCount    = employees with promotion VC
+     *  - skillSdJwtCount     = employees with skill SD-JWT
+     *  - educationSdJwtCount = employees with education SD-JWT
+     *  - activeDids          = employees with DID && isActive
+     *  - revokedThisMonth    = employees terminated this month (proxy for revoke count)
+     *  - trustedIssuers      = static 1 (org1) until Trust Registry (Phase 1 / 4.6) ships
+     *  - pendingAccounts     = mirrors dashboard for banner
+     */
+    @GetMapping("/issuer-stats")
+    fun issuerStats(): ApiResponse<Any> {
+        val all = employeeJpaRepository.findAll()
+        val employmentVcCount = all.count { !it.employmentVc.isNullOrBlank() }
+        val salaryVcCount     = all.count { !it.salaryRangeVc.isNullOrBlank() }
+        val promotionVcCount  = all.count { !it.promotionVc.isNullOrBlank() }
+        val skillSdJwtCount   = all.count {
+            try {
+                val field = it.javaClass.getDeclaredField("skillSdJwt")
+                field.isAccessible = true
+                !(field.get(it) as? String).isNullOrBlank()
+            } catch (_: Exception) { false }
+        }
+        val educationSdJwtCount = all.count {
+            try {
+                val field = it.javaClass.getDeclaredField("educationSdJwt")
+                field.isAccessible = true
+                !(field.get(it) as? String).isNullOrBlank()
+            } catch (_: Exception) { false }
+        }
+        val credentialsIssued = employmentVcCount + salaryVcCount + promotionVcCount +
+                                skillSdJwtCount + educationSdJwtCount
+        val activeDids = all.count { it.isActive && !it.did.isNullOrBlank() }
+
+        val now = LocalDate.now()
+        val revokedThisMonth = all.count {
+            !it.terminationVc.isNullOrBlank() &&
+            it.updatedAt.toLocalDateTime().toLocalDate().let { d ->
+                d.year == now.year && d.month == now.month
+            }
+        }
+
+        val pendingAccounts = authRepository.findByStatus(AccountStatus.PENDING).size
+        val trustedIssuers = runCatching {
+            fabricBridge.listTrustedIssuers().count { it["active"] == true }
+        }.getOrElse { 1 }
+
+        return ApiResponse(
+            status = "200", message = "OK",
+            data = mapOf(
+                "credentialsIssued"   to credentialsIssued,
+                "employmentVcCount"   to employmentVcCount,
+                "salaryVcCount"       to salaryVcCount,
+                "promotionVcCount"    to promotionVcCount,
+                "skillSdJwtCount"     to skillSdJwtCount,
+                "educationSdJwtCount" to educationSdJwtCount,
+                "activeDids"          to activeDids,
+                "revokedThisMonth"    to revokedThisMonth,
+                "trustedIssuers"      to trustedIssuers,
+                "pendingAccounts"     to pendingAccounts,
+            )
+        )
+    }
+
     // ── Pending accounts management ───────────────────────────────────────────
 
     @GetMapping("/pending-accounts")
@@ -133,6 +203,9 @@ class AdminController(
                     approvedBy   = updated.email,
                 )
             }
+            // Ensure status list bit is cleared (ACTIVE) before issuing the VC.
+            // If this employeeId was previously revoked, the new VC must start fresh.
+            employee.id?.let { statusListService.activate(it, updatedBy = updated.email) }
             // Issue EmploymentVC and persist
             val vc = vcIssuerService.issueEmploymentVC(employee)
             employee.employmentVc = vc
@@ -280,6 +353,74 @@ class AdminController(
             )
         }
         return ApiResponse(status = "200", message = "Contract saved", data = mapOf("employeeId" to employeeId))
+    }
+
+    // ── New VC types (Phase 2 / 5.3) ─────────────────────────────────────────
+
+    data class IssueTrainingVcRequest(
+        val trainingName: String,
+        val provider: String,
+        val completedDate: String,
+        val score: String? = null,
+    )
+
+    data class IssueNdaVcRequest(
+        val ndaTitle: String,
+        val docHash: String,
+        val signedDate: String,
+    )
+
+    /**
+     * Phát hành TrainingVC khi nhân viên hoàn thành khoá đào tạo.
+     * POST /api/v1/admin/employees/{employeeId}/issue-training-vc
+     */
+    @PostMapping("/employees/{employeeId}/issue-training-vc")
+    fun issueTrainingVC(
+        @PathVariable employeeId: Long,
+        @RequestBody body: IssueTrainingVcRequest,
+    ): ApiResponse<Any> {
+        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
+            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
+        }
+        val vc = vcIssuerService.issueTrainingVC(
+            employee      = employee,
+            trainingName  = body.trainingName,
+            provider      = body.provider,
+            completedDate = body.completedDate,
+            score         = body.score,
+        )
+        employee.trainingVc = vc
+        employeeJpaRepository.save(employee)
+        return ApiResponse(
+            status = "200", message = "TrainingVC issued",
+            data = mapOf("employeeId" to employeeId, "vc" to vc)
+        )
+    }
+
+    /**
+     * Phát hành NDA-AcceptedVC khi nhân viên ký NDA.
+     * POST /api/v1/admin/employees/{employeeId}/issue-nda-vc
+     */
+    @PostMapping("/employees/{employeeId}/issue-nda-vc")
+    fun issueNdaVC(
+        @PathVariable employeeId: Long,
+        @RequestBody body: IssueNdaVcRequest,
+    ): ApiResponse<Any> {
+        val employee = employeeJpaRepository.findById(employeeId).orElseThrow {
+            ResponseStatusException(HttpStatus.NOT_FOUND, "Employee not found")
+        }
+        val vc = vcIssuerService.issueNdaAcceptedVC(
+            employee   = employee,
+            ndaTitle   = body.ndaTitle,
+            docHash    = body.docHash,
+            signedDate = body.signedDate,
+        )
+        employee.ndaAcceptedVc = vc
+        employeeJpaRepository.save(employee)
+        return ApiResponse(
+            status = "200", message = "NDA-AcceptedVC issued",
+            data = mapOf("employeeId" to employeeId, "vc" to vc)
+        )
     }
 
     @PutMapping("/accounts/{id}/reject")

@@ -1,335 +1,306 @@
-# Identity Fabric
+# TrustID — Self-Sovereign Identity Platform
 
-Repo nay gom 2 phan chinh:
+> **Định vị**: Nền tảng SSI (Self-Sovereign Identity) cho workplace credentials, xây dựng trên Hyperledger Fabric.
+> HRMS (chấm công, hợp đồng, lương) là **use-case minh họa** vai trò Issuer — không phải sản phẩm chính.
 
-- `fabric-network`: mang Hyperledger Fabric 2 org dung de chay chaincode `asset-transfer`.
-- `fabric-spring-backend`: backend Spring Boot/Kotlin cho bai toan identity nhan su, dung JWT + MySQL. Module nay dong thoi van con giu lai mot cum code Fabric API cu trong package `org.fabric.api`.
+---
 
-README nay duoc viet lai dua tren code hien co trong repo, khong dua theo mo ta cu.
+## Kiến trúc tổng quan
 
-## Tong quan kien truc
-
-### 1. `fabric-network`
-
-Module nay dung de dung mot mang Fabric local phuc vu development:
-
-- 2 Certificate Authority: `ca.org1.example.com`, `ca.org2.example.com`
-- 1 orderer: `orderer.example.com`
-- 4 peer:
-  - `peer0.org1.example.com`
-  - `peer1.org1.example.com`
-  - `peer0.org2.example.com`
-  - `peer1.org2.example.com`
-- 1 channel: `mychannel`
-- 1 chaincode Java: `asset-transfer`
-
-Chaincode `asset-transfer` ho tro:
-
-- `InitLedger`
-- `CreateAsset`
-- `ReadAsset`
-- `UpdateAsset`
-- `DeleteAsset`
-- `TransferAsset`
-- `AssetExists`
-- `GetAllAssets`
-
-Chaincode co phat event khi tao, cap nhat, xoa va chuyen chu so huu asset.
-
-### 2. `fabric-spring-backend`
-
-Module backend hien tai khong phai chi la wrapper cho Fabric. Khi doc code, co 2 nhom chuc nang song song:
-
-- `com.mpcorp.identity`: ung dung chinh dang duoc cau truc theo domain/use case/repository, quan ly:
-  - authentication
-  - employee
-  - profile
-  - contract
-  - payroll
-- `org.fabric.api`: mot cum code prototype de ket noi Fabric Gateway va expose API CRUD cho `asset-transfer`.
-
-Noi cach khac: backend nay dang chua ca **identity service** va **Fabric API prototype** trong cung mot project.
-
-## Cau truc thu muc
-
-```text
-identity-fabric/
-|-- fabric-network/
-|   |-- docker-compose.yaml
-|   |-- scripts/network.sh
-|   |-- network/configtx/
-|   |-- network/crypto-config/
-|   |-- chaincode/asset-transfer/
-|   `-- application/
-`-- fabric-spring-backend/
-    |-- build.gradle.kts
-    |-- Dockerfile
-    |-- docker-compose.yml
-    `-- src/main/kotlin/
-        |-- com/mpcorp/identity/
-        `-- org/fabric/api/
+```
+┌─────────────────────────────────────────────────────┐
+│               TrustID Platform                      │
+│                                                     │
+│  Flutter Mobile App          Verifier Portal        │
+│  (identity_frontend/)        (verifier-portal/)     │
+│         │                          │                │
+│         └──────────┬───────────────┘                │
+│                    ▼                                │
+│        Spring Boot Backend                          │
+│        (fabric-spring-backend/)                     │
+│                    │                                │
+│         ┌──────────┴──────────┐                     │
+│         ▼                     ▼                     │
+│     MySQL DB          Hyperledger Fabric            │
+│     (JPA/Hibernate)   (fabric-network/)             │
+└─────────────────────────────────────────────────────┘
 ```
 
-## Phan tich theo module
+### Thành phần
 
-### `fabric-network`
+| Thư mục | Công nghệ | Vai trò |
+|---|---|---|
+| `identity_frontend/` | Flutter 3.x | Mobile app (Employee / Manager / Chief / Admin) |
+| `verifier-portal/` | Vite 5 + React 18 + TypeScript + Tailwind | Standalone Verifier Portal (không cần tài khoản) |
+| `fabric-spring-backend/` | Kotlin + Spring Boot 3 | REST API, VC issuance, SD-JWT, Status List, MFA, GDPR |
+| `fabric-network/` | Hyperledger Fabric 2.x (Java chaincode) | Ledger bất biến — DID, VC records, Trust Registry, Contract Signatures |
 
-#### Thanh phan chinh
+---
 
-- `scripts/network.sh`: script quan ly toan bo vong doi mang.
-- `docker-compose.yaml`: dinh nghia CA, orderer, peer va CLI.
-- `network/configtx/configtx.yaml`: channel profile, MSP, policy.
-- `network/crypto-config/crypto-config.yaml`: topo sinh crypto bang `cryptogen`.
-- `chaincode/asset-transfer`: chaincode Java dong goi bang Maven Shade.
-- `application`: Java client su dung Fabric Gateway SDK.
+## Tính năng chính
 
-#### Luong chay
+### Phase 0 — SSI-first Navigation (✅ Done)
+- Bottom nav SSI-first theo từng role: **Wallet · Verifier · Workplace · Profile**
+- Tab **Workplace** gom toàn bộ HRMS use-cases (Attendance, Requests, Payroll…)
+- **Issuer Console** (Admin Dashboard) với 2 section KPI: SSI KPIs + Operations KPIs
 
-Script `network.sh` ho tro 4 lenh:
+### Phase 1 — W3C Credential Stack (✅ Done)
 
-- `up`: kiem tra prerequisite, tao crypto material, tao genesis/channel artifacts, sau do `docker-compose up -d`
-- `createChannel`: tao `mychannel`, cho orderer join, roi join peer cua 2 org vao channel
-- `deployCC`: build chaincode Java, package, install, approve cho tung org, commit len channel va goi `InitLedger`
-- `down`: ha mang, xoa volume/container chaincode va xoa `organizations/`, `network/channel-artifacts/`
+| Feature | Mô tả |
+|---|---|
+| **Status List 2021** (4.1) | Badge ACTIVE / REVOKED cho mỗi VC trong Wallet; tự động check khi Verifier verify |
+| **SD-JWT Selective Disclosure** (4.2) | Skill & Education credentials: holder chọn field nào tiết lộ |
+| **Verifier Portal** (4.3) | SPA độc lập, paste VC / SD-JWT → verify ngay, không cần login |
+| **DIF Universal Resolver** (4.4) | `GET /1.0/identifiers/{did}` trả DID Document chuẩn W3C |
+| **Biometric Unlock** (4.5) | ECDSA P-256 signing gate bằng fingerprint / Face ID |
+| **Trust Registry on-chain** (4.6) | Danh sách trusted issuers lưu trên Fabric, Verifier Portal hiển thị |
+| **E-sign Contract** (4.7) | Ký hợp đồng bằng wallet key, anchor chữ ký lên Fabric |
 
-#### Yeu cau moi truong
+### Phase 2 — Security & Compliance (✅ Done)
 
-Can co:
+| Feature | Mô tả |
+|---|---|
+| **TOTP 2FA** (5.1) | Setup QR → Google Authenticator → backup codes |
+| **Audit Log on-chain** (5.2) | Timeline lịch sử thay đổi record từng employee, lọc theo loại |
+| **TrainingVC + NDA-AcceptedVC** (5.3) | 2 loại VC mới cho training và NDA |
+| **Rate Limiting + Account Lockout** (5.4) | Bucket4j 10 req/min, lock 15 phút sau 5 lần sai |
+| **GDPR Export + Erasure** (5.5) | Art.20 Data Export, Art.17 Right to be Forgotten |
+| **Device Binding & Session List** (5.6) | Track active devices, logout từng device hoặc tất cả |
 
-- Docker
-- Docker Compose
-- `cryptogen`
-- `configtxgen`
-- `peer`
-- `osnadmin`
-- Java 11+
-- Maven
+---
 
-Script cung yeu cau `core.yaml` ton tai de peer CLI chay duoc. Neu chua co, script se tim o `fabric-network/config/core.yaml`.
+## Cài đặt & Chạy
 
-#### Chaincode Java
+### Yêu cầu
 
-Chaincode o `fabric-network/chaincode/asset-transfer`:
+- Java 17+, Gradle 8+
+- Flutter 3.19+
+- Node.js 20+ (cho verifier-portal)
+- Docker + Docker Compose (cho Hyperledger Fabric)
+- MySQL 8
 
-- model `Asset` gom: `assetId`, `color`, `size`, `owner`, `appraisedValue`
-- contract `AssetTransfer` dung `Genson` de serialize JSON
-- build ra fat jar `chaincode.jar` thong qua Maven Shade
+### 1. Khởi động Hyperledger Fabric
 
-#### Java client demo
-
-Thu muc `fabric-network/application` la mot client Java nho:
-
-- ket noi `peer0.org1` qua Fabric Gateway
-- dung cert/key cua `User1@org1.example.com`
-- chay demo workflow:
-  - `InitLedger`
-  - `GetAllAssets`
-  - `CreateAsset`
-  - `TransferAsset`
-  - `GetAllAssets`
-
-### `fabric-spring-backend`
-
-#### Cong nghe
-
-- Kotlin 2.2.21
-- Spring Boot 4.0.5
-- Spring Web
-- Spring Security
-- Spring Data JPA
-- MySQL
-- JWT (`jjwt`)
-- Gradle Kotlin DSL
-
-#### Khoi chuc nang chinh dang su dung
-
-Package `com.mpcorp.identity` duoc to chuc thanh cac lop:
-
-- `presentation`: controller, request/response, api contract
-- `application`: use case, dto, mapper, support
-- `domain`: entity, repository abstraction
-- `infrastructures`: JPA repository, mapper, security, config
-- `common`: exception, constant, validation, util
-
-#### Bao mat
-
-`SecurityConfig` cho phep anonymous voi:
-
-- `/api/v1/auth/**`
-
-Tat ca endpoint con lai yeu cau JWT Bearer token.
-
-#### Cau hinh backend
-
-Backend dang dung:
-
-- `application.properties` cho JWT + MySQL
-- `application.yml` cho config Fabric prototype (`fabric.msp-id`, `channel-name`, `chaincode-name`, `peer.endpoint`, ...)
-
-Dieu nay cho thay project hien dang co 2 huong cau hinh cung ton tai.
-
-## API chinh cua `com.mpcorp.identity`
-
-### Auth
-
-- `POST /api/v1/auth/sign-up`
-- `POST /api/v1/auth/sign-in`
-
-Payload `sign-up`:
-
-```json
-{
-  "email": "user@example.com",
-  "phone": "0123456789",
-  "password": "secret"
-}
+```powershell
+cd fabric-network
+.\start.ps1          # Hoặc: docker-compose up -d
 ```
 
-Payload `sign-in`:
+### 2. Backend Spring Boot
 
-```json
-{
-  "username": "0123456789",
-  "password": "secret"
-}
+```powershell
+cd fabric-spring-backend
+
+# Cấu hình application.properties:
+#   SD_JWT_SECRET=your-secret
+#   spring.datasource.url=jdbc:mysql://localhost:3306/trustid
+
+.\gradlew bootRun
+# Chạy tại http://localhost:8080
 ```
 
-### Employee
-
-- `POST /api/v1/employee`
-- `GET /api/v1/employee`
-- `PUT /api/v1/employee`
-- `DELETE /api/v1/employee`
-
-Employee duoc thao tac theo user hien tai lay tu JWT, khong truyen `id` tren URL.
-
-### Profile
-
-- `POST /api/v1/profile`
-- `GET /api/v1/profile`
-- `PUT /api/v1/profile`
-- `DELETE /api/v1/profile`
-
-Profile gan voi employee hien tai.
-
-### Contract
-
-- `POST /api/v1/contracts`
-- `GET /api/v1/contracts`
-- `PUT /api/v1/contracts`
-- `DELETE /api/v1/contracts`
-
-### Payroll
-
-- `POST /api/v1/payroll`
-- `GET /api/v1/payroll`
-- `PUT /api/v1/payroll`
-- `DELETE /api/v1/payroll`
-
-## Fabric API prototype trong backend
-
-Ngoai identity API, project con chua package `org.fabric.api`:
-
-- `FabricApplication.kt`: them mot `@SpringBootApplication` rieng
-- `AssetController.kt`: expose API `/api/v1/assets`
-- `AssetService.kt`: goi Fabric Gateway den chaincode `asset-transfer`
-- `FabricGatewayConfig.kt`, `FabricProperties.kt`: bean/cau hinh cho Fabric
-
-API prototype nay ho tro:
-
-- `POST /api/v1/assets/init`
-- `GET /api/v1/assets`
-- `GET /api/v1/assets/{id}`
-- `GET /api/v1/assets/{id}/exists`
-- `POST /api/v1/assets`
-- `PUT /api/v1/assets/{id}`
-- `DELETE /api/v1/assets/{id}`
-- `PATCH /api/v1/assets/{id}/transfer`
-
-Luu y: do project dang co **2 class `@SpringBootApplication`** (`IdentityApplication` va `FabricApplication`), can kiem tra lai y do thiet ke truoc khi dong goi/chay production.
-
-## Cach chay de tham khao
-
-### 1. Chay Fabric network
-
-Tu thu muc `fabric-network`:
-
-```bash
-./scripts/network.sh up
-./scripts/network.sh createChannel
-./scripts/network.sh deployCC
-```
-
-Neu muon dung Java client demo:
-
-```bash
-cd application
-mvn clean package
-java -jar target/app.jar
-```
-
-Tat mang:
-
-```bash
-./scripts/network.sh down
-```
-
-### 2. Chay backend identity
-
-Backend can MySQL local theo `application.properties`:
+**Biến môi trường quan trọng:**
 
 ```properties
-spring.datasource.url=jdbc:mysql://localhost:3306/identity_db?createDatabaseIfNotExist=true
-spring.datasource.username=root
-spring.datasource.password=password
+vc.issuer-did=did:fabric:trustid:org1
+vc.status-list.id=employment-status-list-1
+vc.status-list.size=131072
+vc.status-list.base-url=http://localhost:8080/api/v1/status-list
+sd-jwt.secret=${SD_JWT_SECRET:sd-jwt-secret-trustid-org1-2026}
 ```
 
-Chay local:
+### 3. Flutter Mobile App
 
-```bash
-cd fabric-spring-backend
-./gradlew bootRun
+```powershell
+cd identity_frontend
+flutter pub get
+flutter run
 ```
 
-Hoac tren Windows:
+Đổi `baseUrl` trong [api_constants.dart](identity_frontend/lib/core/network/api_constants.dart) sang IP backend nếu chạy trên thiết bị thật.
 
-```bash
-gradlew.bat bootRun
+### 4. Verifier Portal
+
+```powershell
+cd verifier-portal
+npm install
+npm run dev     # http://localhost:5173
+npm run build   # → dist/
 ```
 
-### 3. Docker cho backend
+Dev proxy tự forward `/api` và `/1.0` → `http://localhost:8080`.
 
-`fabric-spring-backend/docker-compose.yml` dang duoc viet theo huong attach vao `fabric_network` va mount crypto material tu `../fabric-network/organizations/org1`.
+---
 
-No phu hop hon cho phan `org.fabric.api` ket noi Fabric, nhung chua dinh nghia MySQL service cho `com.mpcorp.identity`.
+## API Reference (tóm tắt)
 
-## Nhan xet quan trong sau khi doc code
+### Authentication
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| POST | `/api/v1/auth/sign-in` | — | Đăng nhập, trả JWT |
+| POST | `/api/v1/auth/sign-up` | — | Đăng ký tài khoản |
+| POST | `/api/v1/mfa/validate` | — | Validate TOTP second factor |
 
-Repo hien tai co tinh chat "hybrid":
+### VC & Identity
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| GET | `/api/v1/status-list/{listId}` | — | Status List 2021 VC |
+| GET | `/api/v1/status-list/{listId}/entry?index=N` | — | Check single entry |
+| POST | `/api/v1/identity/vc/verify` | — | Verify W3C VC (+ auto Status List check) |
+| GET | `/1.0/identifiers/{did}` | — | DIF Universal Resolver |
+| GET | `/api/v1/trust-registry/issuers` | — | Danh sách trusted issuers |
 
-- `fabric-network` da ro rang, tuong doi tu hoan chinh cho bai toan demo asset-transfer tren Hyperledger Fabric.
-- `fabric-spring-backend` dang chua hai huong phat trien:
-  - ung dung identity/HR su dung JPA + MySQL
-  - prototype ket noi Hyperledger Fabric
+### SD-JWT
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| POST | `/api/v1/sd-jwt/issue/skill/{employeeId}` | ADMIN/CHIEF | Issue Skill SD-JWT |
+| POST | `/api/v1/sd-jwt/issue/education/{employeeId}` | ADMIN/CHIEF | Issue Education SD-JWT |
+| GET | `/api/v1/sd-jwt/{employeeId}/skill` | — | Sync Skill SD-JWT to mobile |
+| POST | `/api/v1/sd-jwt/present` | — | Build selective presentation |
+| POST | `/api/v1/sd-jwt/verify` | — | Verify SD-JWT presentation |
 
-Neu team muon repo de onboarding de hon, nen tach ro:
+### Admin / Issuer
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| GET | `/api/v1/admin/issuer-stats` | ADMIN/CHIEF | SSI KPI dashboard |
+| POST | `/api/v1/admin/employees/{id}/issue-training-vc` | ADMIN/CHIEF | Issue TrainingVC |
+| POST | `/api/v1/contracts/{id}/sign` | Authenticated | Anchor e-signature on Fabric |
+| GET | `/api/v1/audit/employees/{id}/history` | ADMIN/CHIEF | On-chain audit log |
 
-- backend identity thanh 1 service rieng
-- Fabric API prototype thanh 1 service rieng
+### Security & Privacy
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| POST | `/api/v1/mfa/setup` | ADMIN/CHIEF | Generate TOTP QR |
+| POST | `/api/v1/mfa/verify-setup` | ADMIN/CHIEF | Confirm code → enable MFA |
+| GET | `/api/v1/sessions` | Authenticated | Active device sessions |
+| DELETE | `/api/v1/sessions/{deviceId}` | Authenticated | Logout device |
+| GET | `/api/v1/me/export-data` | Authenticated | GDPR Art.20 data export |
+| DELETE | `/api/v1/me/data` | Authenticated | GDPR Art.17 erasure |
 
-Hoac toi thieu can chuan hoa lai:
+---
 
-- class entry point
-- file config
-- Docker Compose
-- README rieng cho tung module
+## Cấu trúc Flutter App
 
-## File nen doc dau tien
+```
+identity_frontend/lib/
+├── core/
+│   ├── network/
+│   │   ├── api_client.dart            # Dio client + JWT interceptor
+│   │   └── api_constants.dart         # Tất cả endpoint paths
+│   ├── routes/
+│   │   └── app_router.dart            # GoRouter — SSI-first navigation
+│   ├── security/
+│   │   └── biometric_service.dart     # local_auth wrapper
+│   ├── storage/
+│   │   └── secure_storage.dart        # flutter_secure_storage
+│   └── wallet/
+│       ├── sd_jwt_holder.dart         # Parse SD-JWT + build presentation
+│       ├── wallet_service.dart        # ECDSA P-256 keygen + biometric sign
+│       ├── vc_schemas.dart
+│       └── vp_builder.dart
+└── presentation/features/
+    ├── admin/
+    │   ├── admin_dashboard_screen.dart    # Issuer Console (SSI KPIs + quick actions)
+    │   ├── audit_log_screen.dart          # On-chain audit timeline
+    │   ├── issue_sd_jwt_screen.dart       # Issue Skill / Education SD-JWT
+    │   └── pending_accounts_screen.dart
+    ├── contract/
+    │   ├── contract_screen.dart
+    │   └── contract_sign_screen.dart      # E-sign với biometric + Fabric anchor
+    ├── profile/
+    │   ├── profile_screen.dart
+    │   └── gdpr_privacy_screen.dart       # Export Data + Delete My Data
+    ├── security/
+    │   ├── mfa_setup_screen.dart          # TOTP QR setup + backup codes
+    │   └── sessions_screen.dart           # Active devices + logout
+    ├── verifier/
+    │   └── verifier_scan_screen.dart      # QR scanner + verify (Mode A/B) + SD-JWT result
+    ├── wallet/
+    │   ├── wallet_screen.dart             # VC cards + SD-JWT cards + status badges + biometric toggle
+    │   └── disclosure_picker_screen.dart  # Selective disclosure UI
+    └── workplace/
+        └── workplace_screen.dart          # HRMS hub (Attendance, Requests…)
+```
 
-- `fabric-network/scripts/network.sh`
-- `fabric-network/docker-compose.yaml`
-- `fabric-network/chaincode/asset-transfer/src/main/java/org/hyperledger/fabric/samples/AssetTransfer.java`
-- `fabric-spring-backend/build.gradle.kts`
-- `fabric-spring-backend/src/main/kotlin/com/mpcorp/identity/presentation/controller/AuthController.kt`
-- `fabric-spring-backend/src/main/kotlin/com/mpcorp/identity/presentation/controller/EmployeeController.kt`
-- `fabric-spring-backend/src/main/kotlin/org/fabric/api/controller/AssetController.kt`
+---
+
+## Cấu trúc Chaincode (Hyperledger Fabric)
+
+```
+fabric-network/chaincode/asset-transfer/src/main/java/
+└── org/hyperledger/fabric/samples/
+    ├── IdentityLedger.java     # Main chaincode — tất cả transactions
+    └── StatusListRecord.java   # DataType cho Status List
+```
+
+**Transactions chính:**
+
+| Transaction | Type | Key format |
+|---|---|---|
+| `CreateProfile` | SUBMIT | `PROFILE:{employeeId}` |
+| `UpdateStatusListEntry` | SUBMIT | `statuslist:{listId}` |
+| `RegisterIssuer` / `IsTrustedIssuer` | SUBMIT/EVALUATE | `trustregistry:{did}` |
+| `RecordSignature` / `GetSignatures` | SUBMIT/EVALUATE | `signature:{contractId}:{did}` |
+| `GetRecordHistory` | EVALUATE | range scan |
+
+---
+
+## Demo Flow (Hội đồng)
+
+```
+1. Mở app → Wallet tab
+   └── Thấy EmploymentVC với badge [ACTIVE] (Status List 2021)
+
+2. Skill SD-JWT card → "Present with Selective Disclosure"
+   └── Chọn 3/10 skills → Fingerprint → Build presentation
+
+3. Verifier Portal (localhost:5173)
+   └── Paste SD-JWT presentation → Verify
+   └── Thấy disclosedClaims (chỉ 3 skills), 7 skills ẩn hoàn toàn
+
+4. Admin: Issuer Console → Chief terminate employee
+   └── Wallet badge đổi thành [REVOKED]
+   └── Verifier verify lại → "VC revoked (status list ... index ...)"
+
+5. Contract tab → "Sign with Biometric"
+   └── Fingerprint → ECDSA P-256 → Anchor signature lên Fabric
+   └── Ledger screen hiển thị transaction hash
+
+6. Trust Registry tab trong Verifier Portal
+   └── Danh sách trusted issuers on-chain
+
+7. Profile → Security → Active Sessions → Logout other devices
+
+8. Profile → Privacy → Export My Data (GDPR Art.20)
+```
+
+---
+
+## Các file tham chiếu quan trọng
+
+| Khái niệm | File |
+|---|---|
+| API constants (tất cả endpoints) | [api_constants.dart](identity_frontend/lib/core/network/api_constants.dart) |
+| Router + SSI navigation | [app_router.dart](identity_frontend/lib/core/routes/app_router.dart) |
+| SD-JWT model (parse + present) | [sd_jwt_holder.dart](identity_frontend/lib/core/wallet/sd_jwt_holder.dart) |
+| Biometric + ECDSA signing | [wallet_service.dart](identity_frontend/lib/core/wallet/wallet_service.dart) |
+| Status List service | [StatusListService.kt](fabric-spring-backend/src/main/kotlin/com/mpcorp/identity/infrastructures/vc/StatusListService.kt) |
+| SD-JWT issuer | [SdJwtIssuer.kt](fabric-spring-backend/src/main/kotlin/com/mpcorp/identity/infrastructures/vc/SdJwtIssuer.kt) |
+| Trust Registry API | [TrustRegistryController.kt](fabric-spring-backend/src/main/kotlin/com/mpcorp/identity/presentation/controller/TrustRegistryController.kt) |
+| Chaincode (tất cả transactions) | [IdentityLedger.java](fabric-network/chaincode/asset-transfer/src/main/java/org/hyperledger/fabric/samples/IdentityLedger.java) |
+| Verifier Portal API client | [trustid-client.ts](verifier-portal/src/lib/trustid-client.ts) |
+
+---
+
+## Việc còn lại (Phase 3+)
+
+- [ ] **Production hardening**: HMAC → Ed25519/ECDSA, public domain cho `vc.status-list.base-url`, rotate `sd-jwt.secret`
+- [ ] **Flyway/Liquibase migration**: thay thế `ddl-auto=update` cho môi trường production
+- [ ] **OID4VC / OID4VP full spec**: nâng cấp VP flow theo chuẩn OpenID4VC
+- [ ] **Wallet sync TrainingVC / NDA-AcceptedVC**: thêm card loại mới trong wallet_screen
+- [ ] **ContractSignScreen route**: điều hướng từ ContractDetailScreen → `/app/contract/:id/sign`
+- [ ] **Trust Registry UI**: Admin register/revoke issuers từ mobile app
+
+---
+
+*TrustID — Built with Hyperledger Fabric · W3C VC Data Model · SD-JWT · DIF Universal Resolver*

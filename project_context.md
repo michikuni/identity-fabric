@@ -1,383 +1,572 @@
-# TrustID — Identity Fabric Project Context
+# TrustID — Context dự án cho báo cáo học thuật
 
-> Last analyzed: 2026-05-08
-> Owner: Minh Phuong Dang (minhphuonglcby@gmail.com)
+> **Mục đích file này**: Tổng hợp toàn bộ thông tin về dự án TrustID để dùng làm context khi yêu cầu Claude chat chỉnh sửa, hoàn thiện báo cáo `.docx` về ứng dụng blockchain trong định danh số.
 
-## 1. Tổng quan dự án
+---
 
-**TrustID** là một nền tảng **quản lý danh tính & nhân sự (HR)** kết hợp công nghệ **Self-Sovereign Identity (SSI)** dựa trên **Hyperledger Fabric**. Hệ thống áp dụng kiến trúc **hybrid blockchain–database**: dữ liệu nhạy cảm (PII, hợp đồng, lương) lưu off-chain (MySQL), trong khi blockchain chỉ giữ **metadata + SHA-256 hash + audit trail bất biến** và các **DID Document** theo chuẩn W3C.
+## 1. Tên đề tài & Định vị
 
-Mục tiêu chính:
-- Cấp & quản lý **Verifiable Credentials (VC)** cho nhân viên (Employment, Salary Range, Promotion, Termination)
-- Cho phép nhân viên mang theo VC để chứng minh danh tính qua **OID4VP** (selective disclosure) — ngân hàng / nhà tuyển dụng tương lai có thể verify trực tiếp mà không cần liên hệ employer
-- Đảm bảo **tính toàn vẹn & truy xuất audit** cho mọi thay đổi hồ sơ HR thông qua hash on-chain
+**Tên đề tài**: TrustID — Nền tảng Định danh Tự chủ (Self-Sovereign Identity) cho workplace credentials, xây dựng trên Hyperledger Fabric.
 
-Hệ thống gồm 3 module nằm trong cùng workspace `d:/Academy/identity-fabric/`:
+**Định vị học thuật**:
+- Nghiên cứu và triển khai ứng dụng blockchain trong **định danh số phi tập trung** (Decentralized Identity).
+- Áp dụng mô hình **SSI (Self-Sovereign Identity)** theo chuẩn W3C.
+- Use-case minh họa: **workplace credentials** (chứng chỉ việc làm, kỹ năng, học vấn, chấm dứt hợp đồng…).
+- HRMS (chấm công, hợp đồng, lương) đóng vai trò **Issuer minh họa**, không phải sản phẩm chính.
 
-| Module | Vai trò | Stack chính |
+**Bài toán giải quyết**:
+- Định danh truyền thống tập trung → dễ bị tấn công, lộ thông tin, người dùng không kiểm soát dữ liệu.
+- TrustID đặt **người dùng (Holder) làm trung tâm**: tự lưu credential, tự quyết định chia sẻ thông tin nào.
+- Blockchain (Hyperledger Fabric) đóng vai trò **Verifiable Data Registry** — lưu DID, Trust Registry, revocation status — không lưu PII (Personal Identifiable Information).
+
+---
+
+## 2. Mô hình lý thuyết — Trust Triangle (W3C)
+
+```
+        [Issuer]
+       Company/Org1
+     (Spring Backend)
+            │ ký VC bằng HMAC-SHA256
+            ▼
+        [Holder]
+   Employee — Flutter App
+   (giữ DID + VC + private key)
+            │ present VC/VP có chọn lọc
+            ▼
+       [Verifier]
+   Bank/Gov/Recruiter
+   (Verifier Portal — React SPA)
+            │
+            ▼
+[Verifiable Data Registry]
+   Hyperledger Fabric
+(DID Doc + Trust Registry + Status List)
+```
+
+**4 vai trò chính**:
+| Vai trò | Đại diện trong hệ thống | Chức năng |
 |---|---|---|
-| [`fabric-network/`](fabric-network/) | Hyperledger Fabric network + chaincode `identity-ledger` | Java chaincode, Fabric 2.5, Docker |
-| [`fabric-spring-backend/`](fabric-spring-backend/) | API server (HR + DID/VC + Fabric bridge) | Spring Boot 4.0 + Kotlin, JPA/MySQL, Fabric Gateway SDK |
-| [`identity_frontend/`](identity_frontend/) | App di động cho nhân viên / quản lý / chief / admin | Flutter, BLoC, GoRouter, Dio, Firebase |
+| Issuer | Spring Backend (Org1) | Cấp Verifiable Credential, ký số bằng HMAC-SHA256, anchor lên Fabric |
+| Holder | Flutter mobile app | Lưu DID + VC trong Secure Storage, sinh keypair ECDSA P-256, tạo VP |
+| Verifier | React Verifier Portal | Xác minh chữ ký VC/VP, check Status List, không cần đăng nhập |
+| Verifiable Data Registry | Hyperledger Fabric | Lưu DID Document, Trust Registry, Status List 2021, audit log |
 
 ---
 
-## 2. Module: `fabric-network` (Hyperledger Fabric)
+## 3. Kiến trúc tổng thể
 
-### 2.1 Topology
-- **2 organizations**: Org1MSP, Org2MSP
-- **Peers**: peer0/peer1 cho Org1 (7051/8051) và Org2 (9051/10051)
-- **Orderer**: 1 orderer.example.com (7050) — etcdraft consensus
-- **CA**: ca.org1 (7054), ca.org2 (8054) — fabric-ca:1.5.7
-- **Channel**: `mychannel` (single channel, MAJORITY Endorsement policy)
-- **Container network**: `fabric_network` (Docker Compose), TLS bật mặc định, mTLS cho gossip
-
-### 2.2 Chaincode `identity-ledger` (Java)
-- Vị trí: [`fabric-network/chaincode/asset-transfer/`](fabric-network/chaincode/asset-transfer/)
-- Fabric Chaincode Shim 2.5.0, JSON serialization bằng Genson 1.6
-
-**Data models**:
-- `IdentityRecord`: `recordId` = `{recordType}:{employeeId}`, `recordType` ∈ {PROFILE, CONTRACT, PAYROLL}, `status` ∈ {ACTIVE, REVOKED, DELETED}, `keyFields` (JSON non-sensitive), `dataHash` (SHA-256 của full off-chain data), `action`, `timestamp`, `updatedBy`
-- `DIDDocument`: `did` = `did:fabric:trustid:<employeeCode>`, `publicKeyJwk` (ECDSA P-256), `controller`, `status` ∈ {ACTIVE, REVOKED}, `revokedBy`, `revokeReason`
-
-**Transactions**:
-- Submit: `InitLedger`, `UpsertRecord`, `DeleteRecord` (soft delete), `RegisterDID`, `RevokeDID`
-- Evaluate: `GetRecord`, `RecordExists`, `GetRecordHistory`, `GetAllRecordsByEmployee`, `GetAllRecords`, `ResolveDID`, `VerifyRecord` (so sánh hash)
-- Events: `IdentityRecordUpserted`, `IdentityRecordDeleted`, `DIDRegistered`, `DIDRevoked`
-
-### 2.3 Bootstrap & deploy
-- Script chính: [`fabric-network/scripts/network.sh`](fabric-network/scripts/network.sh)
-- Lệnh: `network.sh up` → `createChannel` → `deployCC` → `down`
-- Tạo crypto từ `crypto-config.yaml`, channel artifacts từ `configtx.yaml`
-
----
-
-## 3. Module: `fabric-spring-backend` (Spring Boot + Kotlin)
-
-### 3.1 Tech stack
-- **Spring Boot 4.0.5**, Kotlin 2.2.21, Java 17
-- **Database**: MySQL via Spring Data JPA (`ddl-auto=update`, không có Flyway/Liquibase)
-- **Auth**: Spring Security 6 + JJWT 0.12.6 (HS256, 24h expiry)
-- **Blockchain**: Hyperledger Fabric Gateway SDK 1.7.0 (gRPC + mTLS)
-- **Docs**: SpringDoc OpenAPI 2.8.6 (Swagger UI)
-- **Real-time**: Spring WebSocket / STOMP
-- Build: Gradle Kotlin DSL
-
-### 3.2 Cấu trúc package
-Hai service chạy chung process:
-
-**`com.mpcorp.identity`** — service HR & Identity chính (Clean Architecture):
-- `application/` — DTOs, use cases (auth, employee, contract, payroll, attendance, request, company), mappers
-- `domain/` — entity (Employee, Auth, Contract, Payroll, Profile, Attendance, LeaveRequest, Company), repository interfaces
-- `infrastructures/`:
-  - `config/` — SecurityConfig, DataInitializer
-  - `fabric/` — `FabricLedgerBridge` (domain → blockchain), `FabricRetryScheduler` (30s outbox tick), `FabricOutboxService` (exponential backoff retry)
-  - `persistence/` — JPA entities & repositories
-  - `security/` — `JwtAuthFilter`, UserDetailsService
-  - `vc/` — `VcIssuerService` (issue 4 loại VC), `VpService` (OID4VP verify), `VpSessionStore`
-- `presentation/` — controllers, request/response DTOs, BearerAuthIdResolver
-- `common/` — JwtUtils, enums (EmployeeRole, AccountStatus), exceptions
-
-**`org.fabric.api`** — service Fabric Gateway thuần:
-- `config/FabricGatewayConfig` — gRPC channel, load mTLS cert/key, build Gateway bean
-- `controller/IdentityLedgerController` — REST endpoints gọi chaincode
-- `service/IdentityLedgerService` — submit/evaluate transaction
-- `websocket/` — `FabricEventPublisher` broadcast `/topic/identity`
-- KHÔNG dùng Spring Security & JPA (loại trừ auto-config)
-
-### 3.3 Domain & schema chính (MySQL)
-
-| Bảng | Ghi chú |
-|---|---|
-| `auth` | id (UUID), email, phone, password (bcrypt), role (EMPLOYEE/MANAGER/CHIEF/ADMIN), status (PENDING/ACTIVE/REJECTED) |
-| `employee` | auth_id, department, position, manager_id (self-ref), **did**, **public_key**, **employment_vc**, **termination_vc**, **salary_range_vc**, **promotion_vc** (LONGTEXT) |
-| `profile` | name, gender, identity_type/number, dob, residence, education_level, skills (JSON) |
-| `contract` | type, start/end date, probation, tax_code, social_insurance_number |
-| `payroll` | salary_type, base_salary, bonus, total_income, currency, bank info |
-| `attendance` | work_date, check_in_time, check_out_time |
-| `leave_request` | type, dates, status, approved_by |
-| `fabric_outbox_events` | outbox pattern: PENDING/RETRYING/COMPLETED/DEAD_LETTER, indexed `(event_status, next_retry_at)` |
-
-### 3.4 REST API surface
-**Public** (no auth):
-- `POST /api/v1/auth/signin`, `/signup`
-- `GET /api/v1/identity/did/{did}` — DID resolve
-- `GET /api/v1/identity/vc/{employment|termination|salary|promotion}/{employeeId}`
-- `POST /api/v1/identity/vc/verify`, `GET .../verify-by-id?vcId=...`
-- `POST /api/v1/oidc/vp/{request|submit}`, `GET .../result/{state}`
-- `GET /api/v1/oidc/.well-known/openid-configuration`
-- `GET /ws/**` (WebSocket), Swagger
-
-**Protected** (JWT + role):
-- `/api/v1/employee/**`, `/profile/**`, `/contract/**`, `/payroll/**`, `/attendance/**`, `/request/**`
-- `/api/v1/admin/**` → ADMIN/CHIEF (account approval, salary VC issuance)
-- `/api/v1/chief/**` → CHIEF/ADMIN (terminate employee, revoke DID)
-- `/api/v1/manager/**` → MANAGER+ (team mgmt, attendance review)
-- `/api/v1/ledger/**` → CHIEF/ADMIN (Fabric ledger ops)
-
-### 3.5 Fabric integration pattern (quan trọng)
-**Fire-and-forget + Outbox retry**:
-1. Use case lưu vào MySQL (source of truth) — commit trước
-2. Gọi `@Async` `FabricLedgerBridge.upsert*(entity)`
-3. Bridge tính SHA-256 hash của full JSON, trích `keyFields` (non-sensitive), submit qua `IdentityLedgerService`
-4. Thành công → log + WebSocket event
-5. Thất bại → enqueue vào `fabric_outbox_events`
-6. `FabricRetryScheduler` chạy mỗi 30s, exponential backoff `30s * 2^retryCount`, max 5 lần → DEAD_LETTER
-
-### 3.6 Verifiable Credentials (W3C-style)
-`VcIssuerService` ký bằng **HMAC-SHA256** (secret `vc.secret`) — POC; production cần Ed25519. 4 loại VC issue tự động:
-- **EmploymentVC** — khi admin approve account
-- **SalaryRangeVC** — khi assign payroll (band ENTRY/MID/SENIOR/EXECUTIVE, KHÔNG lộ số chính xác)
-- **PromotionVC** — khi đổi role/position
-- **TerminationVC** — khi terminate (kèm revoke DID)
-
-### 3.7 OID4VP flow
-- `VpSessionStore` (in-memory): state, nonce, vcType, requestedClaims, vpToken, result, expiry
-- Verifier tạo request → Holder scan QR → submit VP → Verifier poll result
-
-### 3.8 Cấu hình quan trọng
-- Cert paths trong `FabricGatewayConfig` đang hard-code Linux: `/home/phuongdang/identity-fabric/fabric-network/organizations/...` — cần override khi chạy trên Windows hoặc dùng env var
-- `fabric.msp-id=Org1MSP`, `channel=mychannel`, `chaincode=identity-ledger`, `peer.endpoint=localhost:7051`
-- Timeouts: evaluate 5s, endorse 15s, submit 5s, commit 60s
-
----
-
-## 4. Module: `identity_frontend` (Flutter)
-
-### 4.1 Tech stack
-- Dart 3.11.1+, Flutter
-- **State**: `flutter_bloc` 9.1.1 + `equatable`
-- **Routing**: `go_router` 17.1.0 (role-based redirect)
-- **DI**: `get_it` 9.2.1 + `injectable` 3.0.0
-- **HTTP**: `dio` 5.9.2 + interceptors
-- **Secure storage**: `flutter_secure_storage` 10.0.0 (Keystore/Keychain)
-- **Crypto**: `pointycastle` 4.0.0 (ECDSA P-256 cho DID wallet)
-- **QR**: `qr_flutter` (gen) + `mobile_scanner` 7.2.0 (scan)
-- **Firebase**: core, remote_config (resolve baseUrl runtime), crashlytics, messaging, analytics
-- **Forms**: `formz` 0.8.0
-- L10n generated, default locale **VI**, có EN
-
-### 4.2 Kiến trúc — Clean Architecture, feature-first
 ```
-lib/
-├── core/               # DI, firebase, network, routes, storage, wallet, qr, themes, locale
-├── data/               # datasources/, models/, repositories/
-├── domain/             # entities/, repositories/, usecases/
-├── presentation/features/
-│   ├── auth/, onboarding/, splash/
-│   ├── attendance/, requests/, directory/, contract/, payroll/, profile/, home/, company/
-│   ├── wallet/         # DID + VC display + QR generation
-│   ├── verifier/       # OID4VP verifier (2 modes)
-│   ├── cccd/           # Vietnamese CCCD scan during onboarding
-│   ├── chief/, admin/, manager/, ledger/
-└── l10n/               # app_en.arb, app_vi.arb
+┌──────────────────────────────────────────────────────────────┐
+│                    TrustID Platform                          │
+│                                                              │
+│   Flutter Mobile App              Verifier Portal (SPA)      │
+│   (identity_frontend/)            (verifier-portal/)         │
+│   - Wallet · Verifier             - Paste VC/SD-JWT          │
+│   - Workplace · Profile           - Verify ngay không login  │
+│         │                                  │                 │
+│         └──────────────┬───────────────────┘                 │
+│                        ▼                                     │
+│        Spring Boot Backend (Kotlin)                          │
+│        (fabric-spring-backend/)                              │
+│        - REST API · JWT Auth · MFA · GDPR                    │
+│        - VC Issuer · SD-JWT · Status List                    │
+│                        │                                     │
+│           ┌────────────┴────────────┐                        │
+│           ▼                         ▼                        │
+│      MySQL Database          Hyperledger Fabric 2.x          │
+│      (PII + VC JSON)         (DID · Trust Registry           │
+│                              · Status List · Audit log)      │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 Bootstrap (`lib/main.dart`)
-1. `WidgetsFlutterBinding.ensureInitialized()` + lock portrait + transparent status bar
-2. `configureDependencies()` — Firebase init → RemoteConfig fetch baseUrl → ApiClient.init → register services trong GetIt
-3. `LocaleCubit.load()` từ SharedPreferences (default VI)
-4. `ICrashlyticsService.runWithCrashReporting()` wrap `runApp(TrustIdApp)`
-5. Root: `TrustIdApp` = MultiBlocProvider(LocaleCubit + AuthBloc) + MaterialApp.router
+### Phân chia trách nhiệm dữ liệu
 
-### 4.4 Routing (`lib/core/routes/app_router.dart`)
-- `/` Splash → `/auth/sign-in` | `/auth/sign-up` | `/auth/onboarding/cccd-scan` → `/auth/onboarding/profile`
-- ShellRoute `/app/*` (bottom nav, persistent):
-  - Common: `/home`, `/profile`, `/attendance` (+ `/history`, `/timesheet`), `/requests` (+ `/create`), `/directory`, `/contract`, `/payroll`, `/company`, `/wallet`, `/verifier`
-  - Manager: `/app/manager/requests`, `/app/manager/timesheet`
-  - Chief: `/app/chief`, `/app/admin/pending-accounts`
-  - Admin: `/app/admin`, `/app/admin/ledger`
-  - Chief+Admin: `/app/ledger`
-- Bottom nav items thay đổi theo role (EMPLOYEE / MANAGER / CHIEF / ADMIN)
-- Redirect guard: chưa đăng nhập → `/auth/sign-in`; sai role → `/app/home`
-
-### 4.5 BLoC chính
-- **AuthBloc** (global): SignInSubmitted, SignUpSubmitted, AuthLoggedOut → tích hợp Analytics (set userId/role)
-- **LocaleCubit** (global): toggle VI ↔ EN, persist SharedPreferences
-- Feature-scoped: AttendanceBloc, RequestBloc, DirectoryBloc, CompanyBloc
-- Wallet & Verifier dùng StatefulWidget thuần (chưa BLoC)
-
-### 4.6 Identity wallet ([`lib/core/wallet/wallet_service.dart`](identity_frontend/lib/core/wallet/wallet_service.dart))
-- `generateAndSave()` — tạo P-256 keypair (PointyCastle), save privateKey hex + publicKey JWK vào SecureStorage (idempotent)
-- DID format: `did:fabric:trustid:<employeeNumericId>`
-- Onboarding flow: scan CCCD → tạo keypair local → submit publicKey với signup → admin approve → backend register DID + issue EmploymentVC
-- VCs lưu encrypted on-device (Keystore/Keychain)
-- Schema definitions: [`lib/core/wallet/vc_schemas.dart`](identity_frontend/lib/core/wallet/vc_schemas.dart)
-
-### 4.7 OID4VP flow
-- `VpBuilder.build()` tạo W3C VP với selective disclosure (chỉ field user chọn)
-- Proof: HMAC-SHA256 + nonce (POC)
-- Verifier mode A: scan VC/VP QR → POST `/identity/vc/verify`
-- Verifier mode B: tạo VP Request QR → holder scan → submit → verifier poll `/oidc/vp/result/{state}`
-
-### 4.8 QR codec ([`lib/core/qr/vc_qr_payload_codec.dart`](identity_frontend/lib/core/qr/vc_qr_payload_codec.dart))
-- Ưu tiên: `vcid:<id>` (~40 chars) → fallback `vcz1:` (gzip+base64url) → raw JSON
-- Selective disclosure: `vcid:<id>?fields=field1,field2`
-
-### 4.9 API client ([`lib/core/network/api_client.dart`](identity_frontend/lib/core/network/api_client.dart))
-- Dio, base URL từ Firebase RemoteConfig (fallback hard-coded `http://188.122.1.106:8080/api/v1`)
-- Timeouts 15s
-- Interceptors:
-  - **AuthInterceptor**: tự gắn `Bearer <jwt>` từ SecureStorage; 401 → clear storage + redirect `/auth/sign-in`
-  - **LogInterceptor**: log request/response (dev)
-- ApiException wrap DioException
-
-### 4.10 CCCD onboarding (Vietnamese-specific)
-- Parse QR pipe-delimited: `id|cccdNumber|name|dob|gender|address|issueDate`
-- ddMMyyyy date, auto-detect gender (Nữ/Female/1 → FEMALE)
-- Validate fields → submit cùng signup
-
-### 4.11 Theming
-- Material 3, light only (chưa có dark)
-- Font Inter, primary blue TrustID, 14px button radius, 16px card radius
-- Vietnamese labels mặc định: Chấm công, Đơn từ, Nhân viên...
+| Loại dữ liệu | Lưu ở đâu | Lý do |
+|---|---|---|
+| PII (tên, email, số điện thoại) | MySQL (off-chain) | Tuân thủ GDPR (quyền xóa) |
+| VC JSON (đã ký) | MySQL | Holder download về app |
+| Hash của VC (SHA-256) | Hyperledger Fabric | Verify tính toàn vẹn |
+| DID Document (public key) | Hyperledger Fabric | Phi tập trung, public |
+| Trust Registry (issuer hợp lệ) | Hyperledger Fabric | Verifier check on-chain |
+| Status List 2021 (revocation) | Hyperledger Fabric | Bất biến, có audit |
+| Chữ ký hợp đồng e-sign | Hyperledger Fabric | Non-repudiation |
 
 ---
 
-## 5. Mô hình tích hợp end-to-end
+## 4. Stack công nghệ chi tiết
 
-### 5.1 Approval flow (cấp VC + DID)
-1. User signup → `auth.status=PENDING` (MySQL)
-2. Admin gọi `/api/v1/admin/approve` → `auth.status=ACTIVE`
-3. Backend async:
-   - `FabricLedgerBridge.registerDID(did, publicKeyJwk)` → chaincode `RegisterDID`
-   - `VcIssuerService.issueEmploymentVC(employeeId)` → save vào `employee.employment_vc`
-4. App pull VC qua `GET /identity/vc/employment/{employeeId}` → lưu SecureStorage
+### 4.1 Backend (fabric-spring-backend)
+- **Ngôn ngữ**: Kotlin
+- **Framework**: Spring Boot 3 (port 8080, base path `/api/v1`)
+- **Authentication**: JWT (HS256, 24h expiry), Spring Security
+- **Database**: MySQL 8 (`identity_db`), JPA/Hibernate
+- **Fabric SDK**: Hyperledger Fabric Gateway 1.7 (Java)
+- **Standards**:
+  - W3C Verifiable Credentials Data Model
+  - W3C DID Core
+  - W3C Status List 2021 (revocation)
+  - SD-JWT (Selective Disclosure JWT) — IETF draft
+  - DIF Universal Resolver
+- **Bảo mật bổ sung**:
+  - TOTP MFA (Google Authenticator compatible) + backup codes
+  - Rate limiting (Bucket4j, 10 req/min) + Account lockout (5 lần sai → khóa 15 phút)
+  - GDPR Art.20 (Data Export) + Art.17 (Right to be Forgotten)
+  - Device binding & session management
 
-### 5.2 Hash integrity flow (mọi update profile/contract/payroll)
-1. Use case save MySQL → commit
-2. `@Async FabricLedgerBridge.upsert*()` → SHA-256 toàn bộ entity → submit `UpsertRecord(employeeId, recordType, status, keyFields, dataHash, ...)`
-3. Verify sau này: client gửi data → backend tính hash → gọi chaincode `VerifyRecord` so sánh
+### 4.2 Frontend Mobile (identity_frontend)
+- **Framework**: Flutter 3.x (Dart)
+- **Kiến trúc**: Clean Architecture (domain / data / presentation)
+- **State management**: flutter_bloc (BLoC pattern, part/part of)
+- **Navigation**: go_router (ShellRoute cho bottom nav)
+- **DI**: get_it (manual registration trong `core/di/injection.dart`)
+- **HTTP**: Dio + JWT auth interceptor
+- **Bảo mật**:
+  - flutter_secure_storage (private key, VC)
+  - local_auth (biometric — Face ID / fingerprint)
+  - ECDSA P-256 keypair (sinh trên thiết bị, private key không bao giờ rời máy)
+- **Localization**: EN + VI (flutter_localizations)
+- **Color palette**: Deep navy primary (#1A237E), gold accent (#F59E0B)
 
-### 5.3 Verification flow (bên ngoài)
-1. Verifier (bank, employer) tạo VP request → QR
-2. Employee scan QR → wallet chọn fields → tạo VP → submit
-3. Backend verify: kiểm HMAC proof + expiry → check DID `ResolveDID` chaincode → return result
-4. Verifier poll `/oidc/vp/result/{state}`
+### 4.3 Verifier Portal (verifier-portal)
+- **Framework**: Vite 5 + React 18 + TypeScript + Tailwind CSS
+- **Đặc điểm**: SPA độc lập, KHÔNG cần đăng nhập
+- **Chức năng**: Paste VC / SD-JWT → verify chữ ký + check Status List on-chain → hiển thị trusted issuers
+- **Dev URL**: http://localhost:5173 (proxy `/api` và `/1.0` → backend)
+
+### 4.4 Blockchain Layer (fabric-network)
+- **Hyperledger Fabric 2.x**
+- **Chaincode**: Java (`asset-transfer`)
+- **Network topology**:
+  - 1 Orderer
+  - 2 Peers (Org1)
+  - 1 CA (Org1 CA)
+  - Channel: `mychannel`
+- **Chaincode chính**: `IdentityLedger.java`
 
 ---
 
-## 6. Lưu ý vận hành & gotchas
+## 5. Kiến trúc 4 layer của backend (quan trọng cho báo cáo)
 
-- **Cert paths hard-code Linux** trong [`fabric-spring-backend`](fabric-spring-backend/) `FabricGatewayConfig` (`/home/phuongdang/...`) → cần env var hoặc symlink khi chạy Windows
-- **Schema management**: dùng Hibernate `ddl-auto=update` — KHÔNG có migration tool, cần cẩn thận khi thay đổi entity
-- **VC proof là HMAC-SHA256** — POC, không phải Ed25519/EdDSA chuẩn production
-- **VpSessionStore in-memory** — không scale ngang được (cần Redis nếu deploy multi-instance)
-- **Outbox table không có job dọn DEAD_LETTER** — cần manual intervention
-- **Frontend baseUrl `http://188.122.1.106:8080`** trong [`api_constants.dart`](identity_frontend/lib/core/network/api_constants.dart) là Windows host của WSL2 backend dev — Firebase RemoteConfig override khi production
-- **Single channel + 2 orgs** — chỉ phù hợp dev/demo, không phải topology production
-- Workspace có nhiều file design / spec markdown ở root: [`TECHNICAL_DOCUMENT.md`](TECHNICAL_DOCUMENT.md), [`TrustId-v2.md`](TrustId-v2.md), [`blockchain.md`](blockchain.md), [`credential.md`](credential.md), [`figma-design-spec.md`](figma-design-spec.md), [`salaryVC.md`](salaryVC.md), [`trustid-uc-detailed.md`](trustid-uc-detailed.md), [`QR.md`](QR.md), [`report.md`](report.md), [`next.md`](next.md) — nguồn tham chiếu thiết kế chi tiết.
+```
+┌─────────────────────────────────────────────────┐
+│ Layer 1: Presentation                           │
+│   presentation/controller/                      │
+│   AuthController, AdminController, ...          │
+│   ─ Xử lý HTTP request/response                 │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────┐
+│ Layer 2: Application (Use Cases)                │
+│   application/usecase/                          │
+│   SignInUseCase, ApproveEmployeeUseCase, ...    │
+│   ─ Business logic, orchestration               │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────┐
+│ Layer 3: Infrastructure                         │
+│   infrastructures/                              │
+│   ├── persistence/  → MySQL (JPA Repository)    │
+│   ├── fabric/       → Blockchain Bridge (async) │
+│   └── vc/           → VC Issuer, SD-JWT, ...    │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────┐
+│ Layer 4: Fabric Gateway (org.fabric.api)        │
+│   - FabricGatewayConfig (gRPC + TLS + X.509)    │
+│   - IdentityLedgerService                       │
+│   - submitTransaction / evaluateTransaction     │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+            Hyperledger Fabric Peer
+            (Chaincode IdentityLedger.java)
+```
 
 ---
 
-## 7. Roles & permissions tóm tắt
+## 6. Cơ chế đọc/ghi blockchain (chi tiết kỹ thuật)
 
-| Role | Quyền chính |
+### 6.1 Hai loại transaction trên Fabric
+
+| Tiêu chí | `submitTransaction` (WRITE) | `evaluateTransaction` (READ) |
+|---|---|---|
+| Dùng cho | UpsertRecord, RegisterDID, DeleteRecord | GetRecord, GetHistory, VerifyRecord |
+| Luồng | Endorser → Orderer → Committer | Chỉ 1 Peer cục bộ |
+| Có thay đổi ledger | Có | Không |
+| Tốc độ | ~2–5 giây | ~milliseconds |
+| Trong chaincode | `stub.putStringState()` | `stub.getStringState()` |
+
+### 6.2 Chaincode `IdentityLedger.java` — các transaction chính
+
+| Transaction | Loại | Key format | Mục đích |
+|---|---|---|---|
+| `CreateProfile` / `UpsertRecord` | SUBMIT | `profile:{employeeId}`, `contract:{id}`, … | Ghi/update hồ sơ |
+| `RegisterDID` | SUBMIT | `did:{didString}` | Đăng ký DID lên ledger |
+| `DeleteRecord` | SUBMIT | (soft delete, status="DELETED") | Giữ audit trail |
+| `UpdateStatusListEntry` | SUBMIT | `statuslist:{listId}` | Revoke / unrevoke VC |
+| `RegisterIssuer` / `IsTrustedIssuer` | SUBMIT/EVALUATE | `trustregistry:{did}` | Trust Registry on-chain |
+| `RecordSignature` / `GetSignatures` | SUBMIT/EVALUATE | `signature:{contractId}:{did}` | E-sign hợp đồng |
+| `GetRecord` | EVALUATE | range theo prefix | Đọc record hiện tại |
+| `GetRecordHistory` | EVALUATE | `getHistoryForKey` | Audit timeline đầy đủ |
+| `VerifyRecord` | EVALUATE | so sánh hash | Kiểm tra tính toàn vẹn |
+
+### 6.3 Pattern lưu dữ liệu kép (Dual-write Pattern)
+
+Mọi thao tác ghi đều theo **2 bước**:
+
+```
+Bước 1: Lưu MySQL (source of truth, commit ngay)
+        ↓
+Bước 2: Async ghi blockchain (fire-and-forget với @Async)
+        ↓
+   ┌────┴────┐
+   ▼         ▼
+Thành công   Thất bại (network/endorsement error)
+   │             │
+   ▼             ▼
+Hoàn tất     Outbox Pattern:
+             - Lưu vào bảng `fabric_outbox_events`
+             - Status = PENDING, nextRetryAt = +30s
+             - Scheduler chạy mỗi 5 phút retry
+             - Exponential backoff: 30s → 60s → 120s → 240s → 480s
+             - Sau 5 lần fail → DEAD_LETTER (cần can thiệp thủ công)
+```
+
+**Tại sao thiết kế dual-write?**
+- MySQL: nhanh, hỗ trợ query phức tạp, xóa được PII (GDPR Art.17).
+- Blockchain: chậm hơn nhưng bất biến, có audit trail, không lưu PII (chỉ lưu hash).
+- Outbox đảm bảo **eventual consistency**: kể cả khi Fabric down, dữ liệu vẫn lên ledger sau khi network khôi phục.
+
+---
+
+## 7. Tính năng đã triển khai (theo phase)
+
+### Phase 0 — SSI-first Navigation
+- Bottom nav theo role: **Wallet · Verifier · Workplace · Profile**
+- Tab Workplace gom toàn bộ HRMS use-cases (Attendance, Requests, Payroll)
+- Issuer Console (Admin Dashboard) với 2 KPI section: SSI KPIs + Operations KPIs
+
+### Phase 1 — W3C Credential Stack
+| Tính năng | Chuẩn liên quan | Mô tả |
+|---|---|---|
+| **Status List 2021** | W3C Status List 2021 | Bitstring 131072 entry; Verifier auto-check ACTIVE/REVOKED |
+| **SD-JWT Selective Disclosure** | IETF SD-JWT draft | Skill & Education VC — holder chọn field nào tiết lộ |
+| **Verifier Portal** | — | SPA độc lập, không cần login |
+| **DIF Universal Resolver** | DIF spec | `GET /1.0/identifiers/{did}` trả DID Document chuẩn W3C |
+| **Biometric Unlock** | FIDO-like | ECDSA P-256 signing gate bằng fingerprint/Face ID |
+| **Trust Registry on-chain** | — | Danh sách trusted issuers lưu trên Fabric |
+| **E-sign Contract** | — | Ký hợp đồng bằng wallet key, anchor lên Fabric |
+
+### Phase 2 — Security & Compliance
+| Tính năng | Mô tả |
 |---|---|
-| **EMPLOYEE** | Self-profile, attendance check-in/out, leave request, view own VC, scan VP, verify others |
-| **MANAGER** | + Approve subordinate leave requests, view team timesheet |
-| **CHIEF** | + Terminate employee (revoke DID + issue TerminationVC), HR management, view ledger |
-| **ADMIN** | + Approve pending accounts, system dashboard, full ledger ops, manage all entities |
+| **TOTP 2FA** | Setup QR → Google Authenticator → backup codes |
+| **Audit Log on-chain** | Timeline lịch sử thay đổi từng employee, lọc theo loại record |
+| **TrainingVC + NDA-AcceptedVC** | 2 loại VC mới cho training và NDA |
+| **Rate Limiting + Account Lockout** | Bucket4j 10 req/min, lock 15 phút sau 5 lần sai |
+| **GDPR Export + Erasure** | Art.20 Data Export, Art.17 Right to be Forgotten |
+| **Device Binding & Session List** | Track active devices, logout từng device hoặc tất cả |
 
-## Research Contribution
+---
 
-This project contributes:
-- A hybrid blockchain-database architecture for HR identity management
-- Integration of SSI concepts into enterprise HR workflows
-- A practical DID + VC implementation using Hyperledger Fabric
-- Selective disclosure verification via OID4VP
-- Hash-based integrity verification for HR records
-- An asynchronous blockchain synchronization model using Outbox Pattern
+## 8. Các loại Verifiable Credential trong hệ thống
 
-## Why Hyperledger Fabric
+| Loại VC | Issuer cấp khi nào | credentialSubject chính |
+|---|---|---|
+| **EmploymentVC** | Admin duyệt tài khoản | department, position, employmentStatus, startDate |
+| **SalaryRangeVC** | Admin/Chief issue thủ công | salaryBand (BAND_A, SENIOR…), currency, position |
+| **PromotionVC** | Chief đổi chức vụ | department, oldPosition, newPosition |
+| **TerminationVC** | Chief chấm dứt HĐ | department, position, terminationReason |
+| **SkillVC (SD-JWT)** | Admin issue SD-JWT | Danh sách skills (holder chọn lựa tiết lộ) |
+| **EducationVC (SD-JWT)** | Admin issue SD-JWT | Bằng cấp, trường, năm (chọn lựa tiết lộ) |
+| **TrainingVC** | Admin issue sau khóa training | courseId, courseName, completedAt |
+| **NDA-AcceptedVC** | Khi user accept NDA | ndaVersion, acceptedAt, ipAddress |
 
-Hyperledger Fabric was selected because:
-- Permissioned blockchain phù hợp dữ liệu HR nội bộ
-- Fine-grained access control
-- Lower transaction cost compared to public blockchain
-- Better privacy model
-- Enterprise-oriented architecture
-- Deterministic endorsement policies
-- No cryptocurrency dependency
+**Cơ chế ký VC**:
+- Thuật toán: **HMAC-SHA256** (secret key riêng cho Issuer)
+- Lý do dùng HMAC thay vì ECDSA cho VC: đơn giản hóa POC; production nên migrate sang Ed25519/ECDSA
+- Verifier xác minh bằng cách gọi backend `/api/v1/identity/vc/verify`
+- DID public key lưu trên Fabric dùng cho VP signature (holder ký, không phải issuer ký)
 
-## Threat Model
+---
 
-The system considers:
-- Identity forgery
-- Unauthorized profile modification
-- Insider tampering
-- Replay attacks
-- Credential leakage
-- DID impersonation
-- Database compromise
-- Blockchain node compromise
+## 9. Selective Disclosure — SD-JWT (điểm sáng học thuật)
 
-Mitigation strategies:
-- SHA-256 integrity hashing
-- DID verification
-- JWT authentication
-- mTLS Fabric communication
-- Immutable audit trail
-- Selective disclosure
+**Vấn đề**: VC truyền thống lộ toàn bộ credentialSubject khi holder present. Ví dụ employee phải tiết lộ TẤT CẢ skills khi chứng minh chỉ 1 skill.
 
-## Experimental Evaluation Plan
+**Giải pháp SD-JWT**:
+1. Issuer băm từng claim với salt riêng: `hash_i = SHA256(salt_i || claim_i)`.
+2. JWT chỉ chứa **danh sách hash**, không chứa giá trị claim gốc.
+3. Salt + claim gốc gửi riêng cho holder qua "disclosure".
+4. Khi present, holder chỉ gửi disclosure của field muốn tiết lộ.
+5. Verifier băm lại từng disclosure và đối chiếu với hash trong JWT.
 
-The evaluation focuses on:
-- DID registration latency
-- VC issuance latency
-- VP verification latency
-- Blockchain synchronization overhead
-- Hash verification performance
-- REST API response time
-- Fabric transaction commit time
+**Ví dụ**: Skills [Java, Kotlin, Python, Go, Rust, ML, K8s, Docker, AWS, GCP]
+- Holder chỉ present Kotlin + Docker → Verifier biết được 2 skills này thuộc credential gốc
+- 8 skills còn lại VẪN ẨN HOÀN TOÀN, Verifier không biết tồn tại
 
-Environment:
-- Dockerized Fabric network
-- MySQL 8
-- Spring Boot backend
-- Flutter Android client
+→ Đảm bảo **data minimization** (GDPR principle), zero-knowledge nhẹ.
 
-Metrics:
-- Average response time
-- Throughput
-- Success rate
-- Retry count
-- CPU and memory usage
+---
 
-## Research Questions
+## 10. Status List 2021 — Cơ chế revocation
 
-This research aims to answer the following questions:
+**Vấn đề**: Sau khi cấp VC, làm sao revoke (thu hồi) mà vẫn giữ tính phi tập trung?
 
-1. How can blockchain improve integrity and trust in HR identity management systems?
+**Giải pháp Status List 2021**:
+1. Một bitstring lớn (131072 bit) lưu trên Fabric.
+2. Mỗi VC có `credentialStatus.statusListIndex` trỏ đến bit thứ N.
+3. Bit = 0 → ACTIVE. Bit = 1 → REVOKED.
+4. Khi Chief terminate employee → backend gọi `UpdateStatusListEntry` chaincode → set bit N = 1.
+5. Verifier khi verify VC → fetch Status List từ `GET /api/v1/status-list/{listId}` → check bit → biết REVOKED.
 
-2. Can Self-Sovereign Identity (SSI) concepts be practically integrated into enterprise HR workflows?
+**Ưu điểm**:
+- Privacy-preserving: 1 bitstring chứa trạng thái của 131072 VC → Verifier không biết đang check VC nào (k-anonymity).
+- Cache-friendly: 1 file Status List dùng cho nhiều verify.
+- Bất biến: mỗi lần update bit là 1 transaction trên Fabric → có audit.
 
-3. How effective is a hybrid blockchain-database architecture compared to fully centralized identity systems?
+---
 
-4. What are the trade-offs between on-chain integrity verification and off-chain operational storage?
+## 11. Hyperledger Fabric — Tại sao chọn?
 
-5. How does asynchronous blockchain synchronization affect consistency and system reliability?
+| Lý do | Giải thích |
+|---|---|
+| **Permissioned blockchain** | Phù hợp với enterprise — biết rõ identity của participant qua MSP |
+| **Không cần token/cryptocurrency** | Không tốn gas fee, không phụ thuộc giá token |
+| **Smart contract (chaincode) bằng Java/Go** | Quen thuộc với dev backend, không cần học Solidity |
+| **Privacy support** | Private Data Collections, Channel-level isolation |
+| **High throughput** | ~3500 TPS, đủ cho enterprise scale |
+| **Tách Endorsement & Ordering** | Linh hoạt hơn Ethereum (PoW/PoS) |
+| **MSP (Membership Service Provider)** | Quản lý identity của các Org bằng X.509 CA |
 
-## System Limitations
+---
 
-Current limitations include:
+## 12. Demo Flow (cho hội đồng / báo cáo)
 
-- VC proof mechanism currently uses HMAC-SHA256 instead of production-grade Ed25519 signatures
-- Single-channel Fabric topology is not optimized for enterprise-scale deployment
-- In-memory VP session store does not support horizontal scaling
-- Hibernate ddl-auto=update lacks controlled schema migration
-- Blockchain synchronization remains eventually consistent
-- The system still depends on a centralized backend API layer
-- No zero-knowledge proof (ZKP) implementation
+```
+1. Mở Flutter app → Wallet tab
+   └── Thấy EmploymentVC với badge [ACTIVE] (Status List 2021)
+   └── Thấy DID card: did:fabric:trustid:42
 
-## Future Improvements
+2. Skill SD-JWT card → "Present with Selective Disclosure"
+   └── Chọn 3/10 skills → Fingerprint xác thực → Build VP
+   └── App tạo QR chứa VP
 
-Potential future improvements:
+3. Mở Verifier Portal (localhost:5173)
+   └── Paste SD-JWT presentation → Verify
+   └── Hiển thị disclosedClaims (3 skills), 7 skills ẩn hoàn toàn
+   └── Trust Registry tab: list trusted issuers từ Fabric
 
-- Replace HMAC proof with Ed25519 / BBS+ signatures
-- Integrate Zero-Knowledge Proof (ZKP)
-- Use Redis for distributed VP session storage
-- Introduce multi-channel or multi-consortium Fabric topology
-- Implement decentralized storage (IPFS)
-- Add revocation registry for VC lifecycle management
-- Improve DID interoperability with external SSI ecosystems
+4. Admin/Chief terminate employee
+   └── Backend gọi UpdateStatusListEntry → bit N = 1 trên Fabric
+   └── Wallet badge đổi thành [REVOKED]
+   └── Verifier verify lại → "VC revoked (status list ... index ...)"
+
+5. Contract tab → "Sign with Biometric"
+   └── Fingerprint → ECDSA P-256 sign hợp đồng
+   └── Backend gọi RecordSignature → anchor lên Fabric
+   └── Ledger screen hiển thị transaction hash
+
+6. Profile → Security → Active Sessions → Logout other devices
+
+7. Profile → Privacy → Export My Data (GDPR Art.20)
+   └── Download JSON chứa toàn bộ data của user
+
+8. Audit log screen (Admin)
+   └── Gọi GetRecordHistory chaincode
+   └── Hiển thị toàn bộ lịch sử thay đổi của 1 employee (txId, timestamp, action)
+```
+
+---
+
+## 13. Đánh giá — Đạt được & Hạn chế
+
+### Đạt được
+- Triển khai đầy đủ Trust Triangle (Issuer / Holder / Verifier / Registry).
+- Áp dụng 4 chuẩn W3C/IETF: VC Data Model, DID Core, Status List 2021, SD-JWT.
+- Selective Disclosure + Biometric Unlock — phù hợp với GDPR data minimization.
+- Outbox Pattern đảm bảo eventual consistency giữa MySQL và Fabric.
+- Tuân thủ GDPR Art.17 (xóa PII trong MySQL, hash vẫn còn trên Fabric).
+- Audit log on-chain — non-repudiation cho contract signatures.
+- MFA, rate limiting, device binding — đáp ứng OWASP best practices.
+
+### Hạn chế / Hướng phát triển
+- VC ký bằng **HMAC-SHA256** thay vì ECDSA/Ed25519 → cần migrate cho production.
+- Chỉ 1 Org (Org1) trong Fabric network → cần đa Org để demo cross-organization trust.
+- Chưa hỗ trợ đầy đủ **OID4VC / OID4VP** (OpenID for Verifiable Credentials).
+- Status List size cố định 131072 → cần cơ chế shard cho scale lớn hơn.
+- `spring.jpa.hibernate.ddl-auto=update` cho dev — production cần Flyway/Liquibase migration.
+- Chưa có Zero-Knowledge Proof đầy đủ (BBS+ signatures, AnonCreds).
+- Trust Registry chưa có UI cho Admin đăng ký/thu hồi issuer từ mobile.
+
+---
+
+## 14. Cấu trúc thư mục dự án
+
+```
+identity-fabric/
+├── fabric-network/                    # Hyperledger Fabric (Docker)
+│   ├── chaincode/asset-transfer/      # Java chaincode
+│   │   └── src/.../IdentityLedger.java
+│   ├── organizations/                 # CA + crypto material
+│   ├── docker/                        # docker-compose
+│   └── start.ps1                      # Khởi động network
+│
+├── fabric-spring-backend/             # Spring Boot (Kotlin)
+│   └── src/main/kotlin/
+│       ├── com/mpcorp/identity/       # Business logic
+│       │   ├── application/usecase/
+│       │   ├── infrastructures/
+│       │   │   ├── fabric/            # FabricLedgerBridge (async + Outbox)
+│       │   │   ├── persistence/       # JPA + MySQL
+│       │   │   └── vc/                # VC Issuer, SD-JWT, Status List
+│       │   └── presentation/controller/
+│       └── org/fabric/api/            # Fabric Gateway Layer
+│           ├── config/FabricGatewayConfig.kt
+│           └── service/IdentityLedgerService.kt
+│
+├── identity_frontend/                 # Flutter app (Dart)
+│   └── lib/
+│       ├── core/
+│       │   ├── wallet/                # SD-JWT, VC, biometric
+│       │   ├── network/               # Dio + JWT interceptor
+│       │   └── security/
+│       └── presentation/features/
+│           ├── wallet/                # VC cards + SD-JWT cards
+│           ├── verifier/              # QR scan + verify
+│           ├── admin/                 # Issuer Console
+│           ├── contract/              # E-sign
+│           ├── security/              # MFA, Sessions
+│           └── profile/               # GDPR Privacy
+│
+└── verifier-portal/                   # React SPA
+    └── src/
+        ├── pages/
+        └── lib/trustid-client.ts      # API client
+```
+
+---
+
+## 15. API Reference (tóm tắt)
+
+### Authentication
+| Method | Path | Mô tả |
+|---|---|---|
+| POST | `/api/v1/auth/sign-in` | Đăng nhập, trả JWT |
+| POST | `/api/v1/auth/sign-up` | Đăng ký tài khoản |
+| POST | `/api/v1/mfa/validate` | Validate TOTP |
+
+### VC & Identity
+| Method | Path | Mô tả |
+|---|---|---|
+| GET | `/api/v1/status-list/{listId}` | Status List 2021 VC |
+| POST | `/api/v1/identity/vc/verify` | Verify VC + Status List |
+| GET | `/1.0/identifiers/{did}` | DIF Universal Resolver |
+| GET | `/api/v1/trust-registry/issuers` | Danh sách trusted issuers |
+
+### SD-JWT
+| Method | Path | Mô tả |
+|---|---|---|
+| POST | `/api/v1/sd-jwt/issue/skill/{employeeId}` | Issue Skill SD-JWT |
+| POST | `/api/v1/sd-jwt/present` | Build selective presentation |
+| POST | `/api/v1/sd-jwt/verify` | Verify SD-JWT |
+
+### Ledger (Blockchain)
+| Method | Path | Mô tả |
+|---|---|---|
+| POST | `/api/v1/ledger/records` | Upsert record lên Fabric |
+| GET | `/api/v1/ledger/records/{id}/{type}` | Đọc record từ Fabric |
+| GET | `/api/v1/ledger/records/{id}/{type}/history` | Audit log on-chain |
+| GET | `/api/v1/ledger/records/{id}/{type}/verify?hash=...` | Verify integrity |
+
+### Admin
+| Method | Path | Mô tả |
+|---|---|---|
+| GET | `/api/v1/admin/issuer-stats` | SSI KPI dashboard |
+| POST | `/api/v1/admin/employees/{id}/issue-training-vc` | Issue TrainingVC |
+| POST | `/api/v1/contracts/{id}/sign` | Anchor e-signature on Fabric |
+
+---
+
+## 16. Cấu hình & biến môi trường quan trọng
+
+```properties
+# JWT
+jwt.secret=<HS256 secret 64+ ký tự>
+jwt.expiration=86400000          # 24h
+
+# MySQL
+spring.datasource.url=jdbc:mysql://localhost:3306/identity_db
+spring.datasource.username=root
+spring.datasource.password=password
+
+# VC HMAC signing
+vc.secret=${VC_SECRET:vc-secret-trustid-org1-2026}
+vc.issuer-did=did:fabric:trustid:org1
+
+# Status List 2021
+vc.status-list.id=employment-status-list-1
+vc.status-list.size=131072
+vc.status-list.base-url=http://localhost:8080/api/v1/status-list
+
+# SD-JWT
+sd-jwt.secret=${SD_JWT_SECRET:sd-jwt-secret-trustid-org1-2026}
+
+# Fabric Gateway
+fabric.peer.endpoint=localhost:7051
+fabric.gateway.mspId=Org1MSP
+fabric.gateway.certPath=/path/to/User1@org1/cert.pem
+fabric.gateway.keyPath=/path/to/User1@org1/key.pem
+fabric.channelName=mychannel
+fabric.chaincodeName=asset-transfer
+```
+
+---
+
+## 17. Tài liệu tham khảo (cho phần References của báo cáo)
+
+| # | Nguồn |
+|---|---|
+| 1 | W3C Verifiable Credentials Data Model 1.1 — https://www.w3.org/TR/vc-data-model/ |
+| 2 | W3C Decentralized Identifiers (DIDs) v1.0 — https://www.w3.org/TR/did-core/ |
+| 3 | W3C Status List 2021 — https://www.w3.org/TR/vc-status-list/ |
+| 4 | IETF SD-JWT Draft — https://datatracker.ietf.org/doc/draft-ietf-oauth-selective-disclosure-jwt/ |
+| 5 | DIF Universal Resolver — https://github.com/decentralized-identity/universal-resolver |
+| 6 | Hyperledger Fabric Documentation — https://hyperledger-fabric.readthedocs.io/ |
+| 7 | NIST SP 800-63-3 Digital Identity Guidelines |
+| 8 | GDPR — Regulation (EU) 2016/679 (Art.17, Art.20) |
+| 9 | OWASP Authentication Cheat Sheet |
+| 10 | OpenID for Verifiable Credential Issuance (OID4VCI) |
+
+---
+
+## 18. Cách dùng file này khi yêu cầu Claude chỉnh sửa báo cáo
+
+**Mẫu prompt khi paste lên Claude chat**:
+
+```
+Tôi đang viết báo cáo học thuật về ứng dụng blockchain trong định danh số.
+Đây là context của dự án TrustID mà tôi đã xây dựng:
+
+[paste toàn bộ nội dung project_context.md]
+
+Bây giờ tôi cần bạn giúp [VIỆC CỤ THỂ — ví dụ:]:
+- Viết lại phần Mở đầu (1.500 từ) theo phong cách học thuật
+- Tóm tắt chương 2 thành abstract 250 từ
+- Bổ sung phần so sánh TrustID với các SSI framework khác (Hyperledger Indy, ION, Sovrin)
+- Sửa câu văn ở đoạn này cho học thuật hơn: [paste đoạn]
+- Đề xuất danh mục Tài liệu tham khảo cho phần [X]
+
+Yêu cầu chung:
+- Tone học thuật, dùng đại từ "chúng tôi" / "tác giả"
+- Trích dẫn chuẩn (IEEE / APA)
+- Khi nhắc đến số liệu kỹ thuật, dựa trên context ở trên
+```
+
+---
+
+*File context này được cập nhật ngày 2026-05-17. Khi dự án thay đổi đáng kể (thêm phase mới, đổi stack, …), cần cập nhật lại trước khi dùng cho prompt mới.*

@@ -77,4 +77,20 @@ class EmployeeJpaEntity(
     // VC Layer — PromotionVC JSON issued when role/position changes
     @Column(name = "promotion_vc", columnDefinition = "LONGTEXT")
     var promotionVc: String? = null,
+
+    // SD-JWT Layer — SkillCredential as SD-JWT compact string (selective disclosure)
+    @Column(name = "skill_sd_jwt", columnDefinition = "LONGTEXT")
+    var skillSdJwt: String? = null,
+
+    // SD-JWT Layer — EducationCredential as SD-JWT compact string
+    @Column(name = "education_sd_jwt", columnDefinition = "LONGTEXT")
+    var educationSdJwt: String? = null,
+
+    // VC Layer — TrainingVC JSON issued when employee completes training
+    @Column(name = "training_vc", columnDefinition = "LONGTEXT")
+    var trainingVc: String? = null,
+
+    // VC Layer — NDA-AcceptedVC JSON issued when employee signs NDA
+    @Column(name = "nda_accepted_vc", columnDefinition = "LONGTEXT")
+    var ndaAcceptedVc: String? = null,
 )

@@ -126,6 +126,29 @@ data class RevokeDIDRequest(
     val revokeReason: String = "CONTRACT_TERMINATED",
 )
 
+// ── Status List 2021 — mirrors StatusListRecord.java in chaincode ─────────────
+
+@Schema(description = "Status List 2021 record stored on the Fabric ledger")
+data class StatusListRecord(
+    @JsonProperty("listId")       val listId: String,
+    @JsonProperty("encodedList")  val encodedList: String,
+    @JsonProperty("size")         val size: Long,
+    @JsonProperty("updatedIndex") val updatedIndex: Long,
+    @JsonProperty("revoked")      val revoked: Boolean,
+    @JsonProperty("updatedAt")    val updatedAt: String,
+    @JsonProperty("updatedBy")    val updatedBy: String,
+)
+
+@Schema(description = "Request to update an entry in a W3C Status List 2021 bitstring")
+data class UpdateStatusListEntryRequest(
+    @field:NotBlank val listId: String,
+    @field:NotBlank val encodedList: String,
+    val size: Long,
+    val updatedIndex: Long,
+    val revoked: Boolean,
+    val updatedBy: String = "system",
+)
+
 // ── Verify hash integrity ─────────────────────────────────────────────────────
 
 @Schema(description = "Result of on-chain hash verification against off-chain MySQL data")

@@ -21,8 +21,11 @@ class AuthController(
     override fun signIn(@RequestBody signInRequest: SignInRequest): SignInResponse {
         val result = signInUseCase.execute(
             SignInCommand(
-                username = signInRequest.username,
-                password = signInRequest.password
+                username       = signInRequest.username,
+                password       = signInRequest.password,
+                deviceId       = signInRequest.deviceId,
+                deviceName     = signInRequest.deviceName,
+                devicePlatform = signInRequest.devicePlatform,
             )
         )
         return SignInResponse(

@@ -11,6 +11,7 @@ import com.mpcorp.identity.infrastructures.persistence.jpa_entity.EmployeeJpaEnt
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AuthJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.LeaveRequestJpaRepository
+import com.mpcorp.identity.infrastructures.vc.StatusListService
 import com.mpcorp.identity.infrastructures.vc.VcIssuerService
 import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
@@ -31,6 +32,7 @@ class ChiefController(
     private val ledgerBridge: FabricLedgerBridge,
     private val passwordEncoder: BCryptPasswordEncoder,
     private val vcIssuerService: VcIssuerService,
+    private val statusListService: StatusListService,
     private val leaveRequestJpaRepository: LeaveRequestJpaRepository,
 ) {
     data class ChangeRoleRequest(val role: String, val position: String? = null)
@@ -210,6 +212,9 @@ class ChiefController(
         ledgerBridge.logRequest(id.toString(), "TERMINATION", "DELETE", actor)
         // Revoke DID on Fabric when employee is terminated
         ledgerBridge.revokeDID(employeeId = id.toString(), revokedBy = actor, reason = body.reason)
+        // Flip the Status List 2021 bit so every VC referencing this index
+        // (Employment / SalaryRange / Promotion) shows REVOKED to verifiers.
+        emp.id?.let { statusListService.revoke(it, revokedBy = actor) }
         // Issue TerminationVC and persist
         val terminationVc = vcIssuerService.issueTerminationVC(emp, revokedBy = actor, reason = body.reason)
         emp.terminationVc = terminationVc

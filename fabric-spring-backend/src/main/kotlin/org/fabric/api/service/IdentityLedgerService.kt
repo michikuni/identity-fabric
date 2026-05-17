@@ -10,6 +10,8 @@ import org.fabric.api.model.DIDDocument
 import org.fabric.api.model.IdentityRecord
 import org.fabric.api.model.RegisterDIDRequest
 import org.fabric.api.model.RevokeDIDRequest
+import org.fabric.api.model.StatusListRecord
+import org.fabric.api.model.UpdateStatusListEntryRequest
 import org.fabric.api.model.UpsertIdentityRecordRequest
 import org.fabric.api.model.VerifyRecordResponse
 import org.fabric.api.websocket.FabricEvent
@@ -252,6 +254,110 @@ class IdentityLedgerService(
             handleFabricError("ResolveDID", e)
         }
         return objectMapper.readValue(result)
+    }
+
+    // ── Status List 2021 — VC Revocation ──────────────────────────────────────
+
+    /**
+     * Updates the on-chain snapshot of a W3C Status List 2021 bitstring.
+     * The backend computes the new encoded list (gzip + base64url of the bitmap)
+     * and submits the whole payload — the chaincode just stores it.
+     */
+    fun updateStatusListEntry(request: UpdateStatusListEntryRequest): StatusListRecord {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT UpdateStatusListEntry listId=${request.listId} index=${request.updatedIndex} revoked=${request.revoked}" }
+
+        val resultBytes = runCatching {
+            contract.submitTransaction(
+                "UpdateStatusListEntry",
+                request.listId,
+                request.encodedList,
+                request.size.toString(),
+                request.updatedIndex.toString(),
+                request.revoked.toString(),
+                timestamp,
+                request.updatedBy,
+            )
+        }.getOrElse { handleFabricError("UpdateStatusListEntry", it) }
+
+        val record = objectMapper.readValue<StatusListRecord>(resultBytes)
+        eventPublisher.publish(FabricEvent(EventType.RECORD_UPDATED, recordId = "statuslist:${record.listId}", payload = record))
+        return record
+    }
+
+    /**
+     * Reads the latest StatusListRecord from the ledger.
+     * Returns null if no record exists yet (first issuance scenario).
+     */
+    fun getStatusList(listId: String): StatusListRecord? {
+        log.debug { "EVALUATE GetStatusList listId=$listId" }
+        val result = runCatching {
+            contract.evaluateTransaction("GetStatusList", listId)
+        }.getOrElse { e ->
+            if (e.message?.contains("not found") == true) return null
+            handleFabricError("GetStatusList", e)
+        }
+        return objectMapper.readValue(result)
+    }
+
+    // ── Trust Registry ───────────────────────────────────────────────────────
+
+    fun registerIssuer(did: String, name: String, role: String, scope: String, registeredBy: String) {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT RegisterIssuer did=$did name=$name" }
+        runCatching {
+            contract.submitTransaction("RegisterIssuer", did, name, role, scope, registeredBy, timestamp)
+        }.getOrElse { handleFabricError("RegisterIssuer", it) }
+    }
+
+    fun revokeIssuer(did: String, revokedBy: String) {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT RevokeIssuer did=$did" }
+        runCatching {
+            contract.submitTransaction("RevokeIssuer", did, revokedBy, timestamp)
+        }.getOrElse { handleFabricError("RevokeIssuer", it) }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun listTrustedIssuers(): List<Map<String, Any?>> {
+        log.debug { "EVALUATE ListTrustedIssuers" }
+        val result = runCatching {
+            contract.evaluateTransaction("ListTrustedIssuers")
+        }.getOrElse { handleFabricError("ListTrustedIssuers", it) }
+        return objectMapper.readValue(result, List::class.java) as List<Map<String, Any?>>
+    }
+
+    fun isTrustedIssuer(did: String): Boolean {
+        log.debug { "EVALUATE IsTrustedIssuer did=$did" }
+        val result = runCatching {
+            contract.evaluateTransaction("IsTrustedIssuer", did)
+        }.getOrElse { handleFabricError("IsTrustedIssuer", it) }
+        return String(result).trim().equals("true", ignoreCase = true)
+    }
+
+    // ── Contract Signatures ───────────────────────────────────────────────────
+
+    fun recordSignature(
+        contractId: String,
+        signerDid: String,
+        signatureBase64: String,
+        docHash: String,
+        updatedBy: String,
+    ) {
+        val timestamp = Instant.now().toString()
+        log.info { "SUBMIT RecordSignature contractId=$contractId signerDid=$signerDid" }
+        runCatching {
+            contract.submitTransaction("RecordSignature", contractId, signerDid, signatureBase64, docHash, timestamp, updatedBy)
+        }.getOrElse { handleFabricError("RecordSignature", it) }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun getSignatures(contractId: String): List<Map<String, Any?>> {
+        log.debug { "EVALUATE GetSignatures contractId=$contractId" }
+        val result = runCatching {
+            contract.evaluateTransaction("GetSignatures", contractId)
+        }.getOrElse { handleFabricError("GetSignatures", it) }
+        return objectMapper.readValue(result, List::class.java) as List<Map<String, Any?>>
     }
 
     // ── Verify hash integrity ─────────────────────────────────────────────────

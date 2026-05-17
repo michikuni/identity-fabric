@@ -28,20 +28,24 @@ class JwtUtils(
 
     fun generateToken(
         userId: String,
-        role: String
+        role: String,
+        deviceId: String? = null,
     ): String {
-
         val now = Date()
         val expiryDate = Date(now.time + expirationMs)
 
-        return Jwts.builder()
+        val builder = Jwts.builder()
             .subject(userId)
             .claim("role", role)
             .issuedAt(now)
             .expiration(expiryDate)
-            .signWith(getSigningKey())
-            .compact()
+        if (deviceId != null) builder.claim("deviceId", deviceId)
+        return builder.signWith(getSigningKey()).compact()
     }
+
+    fun extractDeviceId(token: String): String? = runCatching {
+        extractClaim(token) { it["deviceId"] as? String }
+    }.getOrNull()
 
     fun extractUserId(token: String): String {
         return extractClaim(token) { it.subject }

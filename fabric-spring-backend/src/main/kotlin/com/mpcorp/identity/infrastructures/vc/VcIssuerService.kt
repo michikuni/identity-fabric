@@ -15,13 +15,43 @@ import javax.crypto.spec.SecretKeySpec
  * Dùng HMAC-SHA256 với server secret để ký VC (phù hợp PoC/báo cáo).
  * Production nên dùng Ed25519 hoặc ECDSA P-256 với server keypair.
  *
- * VC format: W3C Verifiable Credentials Data Model v1.1 (simplified)
+ * VC format: W3C Verifiable Credentials Data Model v1.1 (simplified).
+ *
+ * ## Revocation (W3C Status List 2021)
+ *
+ * Mỗi VC được phát ra với block `credentialStatus` trỏ đến bit duy nhất
+ * trong một Status List. Khi Admin/Chief revoke (terminate), StatusListService
+ * lật bit 0→1 và đẩy snapshot mới lên Fabric. Verifier resolve URL
+ * `statusListCredential` để lấy bitstring và kiểm tra bit tại
+ * `statusListIndex`. Xem [StatusListService] để biết chi tiết.
+ *
+ * Quy ước index: `statusListIndex = employee.id` (Long, đảm bảo unique và
+ * duy trì trong toàn bộ vòng đời của nhân viên — không phát lại index khi
+ * tái phát VC).
  */
 @Service
 class VcIssuerService(
     private val objectMapper: ObjectMapper,
+    private val statusListService: StatusListService,
+    private val sdJwtIssuer: SdJwtIssuer,
     @Value("\${vc.secret}") private val vcSecret: String,
 ) {
+
+    /**
+     * Quy ước index: dùng `employee.id` (Long) làm statusListIndex.
+     * Trả về null nếu employee chưa có id (chưa persist) — caller cần persist trước.
+     */
+    private fun statusListIndexFor(employeeId: Long?): Long? = employeeId?.takeIf { it >= 0 }
+
+    /**
+     * Build credentialStatus block cho VC nếu employee đã có id hợp lệ,
+     * ngược lại trả null (Jackson sẽ bỏ qua field null khi serialize nếu
+     * không có trong map — caller append có điều kiện).
+     */
+    private fun credentialStatusFor(employeeId: Long?): Map<String, Any>? {
+        val index = statusListIndexFor(employeeId) ?: return null
+        return statusListService.buildCredentialStatus(index)
+    }
 
     /**
      * Phát hành EmploymentVC cho nhân viên vừa được Admin approve.
@@ -43,15 +73,16 @@ class VcIssuerService(
             "startDate"        to employee.createdAt.toInstant().toString(),
         )
 
-        val vcBody = mapOf(
-            "@context"          to listOf("https://www.w3.org/2018/credentials/v1"),
-            "type"              to listOf("VerifiableCredential", "EmploymentCredential"),
-            "id"                to "vc:trustid:employment:$employeeId:${now.epochSecond}",
-            "issuer"            to "did:fabric:trustid:org1",
-            "issuanceDate"      to now.toString(),
-            "expirationDate"    to expiry.toString(),
-            "credentialSubject" to credentialSubject,
-        )
+        val vcBody = buildMap<String, Any> {
+            put("@context",          listOf("https://www.w3.org/2018/credentials/v1"))
+            put("type",              listOf("VerifiableCredential", "EmploymentCredential"))
+            put("id",                "vc:trustid:employment:$employeeId:${now.epochSecond}")
+            put("issuer",            "did:fabric:trustid:org1")
+            put("issuanceDate",      now.toString())
+            put("expirationDate",    expiry.toString())
+            put("credentialSubject", credentialSubject)
+            credentialStatusFor(employee.id)?.let { put("credentialStatus", it) }
+        }
 
         val vcBodyJson = objectMapper.writeValueAsString(vcBody)
         val proofValue  = hmacSha256(vcBodyJson)
@@ -97,6 +128,20 @@ class VcIssuerService(
                 return VcVerifyResult(false, "VC expired at $expiry")
             }
 
+            // Status List 2021 revocation check
+            val credentialStatus = vc["credentialStatus"] as? Map<*, *>
+            if (credentialStatus != null && credentialStatus["type"] == "StatusList2021Entry") {
+                val statusUrl   = credentialStatus["statusListCredential"] as? String
+                val indexString = credentialStatus["statusListIndex"] as? String
+                val listId      = statusUrl?.substringAfterLast("/")
+                val index       = indexString?.toLongOrNull()
+                if (listId != null && index != null) {
+                    if (statusListService.isRevoked(index, listId)) {
+                        return VcVerifyResult(false, "VC revoked (status list $listId index $index)")
+                    }
+                }
+            }
+
             VcVerifyResult(true, "Valid")
         } catch (e: Exception) {
             VcVerifyResult(false, "Parse error: ${e.message}")
@@ -129,15 +174,16 @@ class VcIssuerService(
             "issuedAt"   to now.toString(),
         )
 
-        val vcBody = mapOf(
-            "@context"          to listOf("https://www.w3.org/2018/credentials/v1"),
-            "type"              to listOf("VerifiableCredential", "SalaryRangeCredential"),
-            "id"                to "vc:trustid:salary:$employeeId:${now.epochSecond}",
-            "issuer"            to "did:fabric:trustid:org1",
-            "issuanceDate"      to now.toString(),
-            "expirationDate"    to expiry.toString(),
-            "credentialSubject" to credentialSubject,
-        )
+        val vcBody = buildMap<String, Any> {
+            put("@context",          listOf("https://www.w3.org/2018/credentials/v1"))
+            put("type",              listOf("VerifiableCredential", "SalaryRangeCredential"))
+            put("id",                "vc:trustid:salary:$employeeId:${now.epochSecond}")
+            put("issuer",            "did:fabric:trustid:org1")
+            put("issuanceDate",      now.toString())
+            put("expirationDate",    expiry.toString())
+            put("credentialSubject", credentialSubject)
+            credentialStatusFor(employee.id)?.let { put("credentialStatus", it) }
+        }
 
         val vcBodyJson = objectMapper.writeValueAsString(vcBody)
         val proofValue = hmacSha256(vcBodyJson)
@@ -175,14 +221,15 @@ class VcIssuerService(
             "promotedBy"  to promotedBy,
         )
 
-        val vcBody = mapOf(
-            "@context"          to listOf("https://www.w3.org/2018/credentials/v1"),
-            "type"              to listOf("VerifiableCredential", "PromotionCredential"),
-            "id"                to "vc:trustid:promotion:$employeeId:${now.epochSecond}",
-            "issuer"            to "did:fabric:trustid:org1",
-            "issuanceDate"      to now.toString(),
-            "credentialSubject" to credentialSubject,
-        )
+        val vcBody = buildMap<String, Any> {
+            put("@context",          listOf("https://www.w3.org/2018/credentials/v1"))
+            put("type",              listOf("VerifiableCredential", "PromotionCredential"))
+            put("id",                "vc:trustid:promotion:$employeeId:${now.epochSecond}")
+            put("issuer",            "did:fabric:trustid:org1")
+            put("issuanceDate",      now.toString())
+            put("credentialSubject", credentialSubject)
+            credentialStatusFor(employee.id)?.let { put("credentialStatus", it) }
+        }
 
         val vcBodyJson = objectMapper.writeValueAsString(vcBody)
         val proofValue = hmacSha256(vcBodyJson)
@@ -216,14 +263,15 @@ class VcIssuerService(
             "revokedBy"        to revokedBy,
         )
 
-        val vcBody = mapOf(
-            "@context"          to listOf("https://www.w3.org/2018/credentials/v1"),
-            "type"              to listOf("VerifiableCredential", "TerminationCredential"),
-            "id"                to "vc:trustid:termination:$employeeId:${now.epochSecond}",
-            "issuer"            to "did:fabric:trustid:org1",
-            "issuanceDate"      to now.toString(),
-            "credentialSubject" to credentialSubject,
-        )
+        val vcBody = buildMap<String, Any> {
+            put("@context",          listOf("https://www.w3.org/2018/credentials/v1"))
+            put("type",              listOf("VerifiableCredential", "TerminationCredential"))
+            put("id",                "vc:trustid:termination:$employeeId:${now.epochSecond}")
+            put("issuer",            "did:fabric:trustid:org1")
+            put("issuanceDate",      now.toString())
+            put("credentialSubject", credentialSubject)
+            credentialStatusFor(employee.id)?.let { put("credentialStatus", it) }
+        }
 
         val vcBodyJson = objectMapper.writeValueAsString(vcBody)
         val proofValue  = hmacSha256(vcBodyJson)
@@ -237,6 +285,174 @@ class VcIssuerService(
             )
         )
 
+        return objectMapper.writeValueAsString(vcWithProof)
+    }
+
+    /**
+     * Phát hành SkillCredential dưới dạng SD-JWT (selective disclosure).
+     *
+     * Mỗi skill là một disclosure độc lập — holder có thể chọn lộ 3/10 skill
+     * cho Verifier mà vẫn giữ chữ ký Issuer hợp lệ.
+     *
+     * @param employee  nhân viên sở hữu credential
+     * @param skills    map { skillName → proficiency } (e.g. {"Kotlin": "ADVANCED", "Spring": "INTERMEDIATE"})
+     * @param issuedBy  ai phát (lưu vào claim luôn hiển thị)
+     */
+    fun issueSkillSdJwt(
+        employee: EmployeeJpaEntity,
+        skills: Map<String, Any?>,
+        issuedBy: String = "did:fabric:trustid:org1",
+    ): SdJwtIssuer.IssuedSdJwt {
+        require(skills.isNotEmpty()) { "skills must not be empty" }
+        val employeeId = employee.id.toString()
+        val did = "did:fabric:trustid:$employeeId"
+        return sdJwtIssuer.issue(
+            vct             = "SkillCredential",
+            subjectDid      = did,
+            selectiveClaims = skills,
+            alwaysVisible   = mapOf(
+                "department" to employee.department,
+                "position"   to employee.position,
+                "issuedBy"   to issuedBy,
+            ),
+            credentialStatus = credentialStatusFor(employee.id),
+        )
+    }
+
+    /**
+     * Phát hành EducationCredential dưới dạng SD-JWT.
+     *
+     * Common selective claims: degree, major, university, gpa, graduationYear, honors.
+     */
+    fun issueEducationSdJwt(
+        employee: EmployeeJpaEntity,
+        education: Map<String, Any?>,
+        issuedBy: String = "did:fabric:trustid:org1",
+    ): SdJwtIssuer.IssuedSdJwt {
+        require(education.isNotEmpty()) { "education claims must not be empty" }
+        val employeeId = employee.id.toString()
+        val did = "did:fabric:trustid:$employeeId"
+        return sdJwtIssuer.issue(
+            vct             = "EducationCredential",
+            subjectDid      = did,
+            selectiveClaims = education,
+            alwaysVisible   = mapOf(
+                "issuedBy" to issuedBy,
+            ),
+            credentialStatus = credentialStatusFor(employee.id),
+        )
+    }
+
+    /**
+     * Phát hành TrainingVC khi nhân viên hoàn thành một khoá đào tạo.
+     *
+     * @param employee     nhân viên sở hữu credential
+     * @param trainingName tên khoá đào tạo (e.g. "AWS Solutions Architect")
+     * @param provider     đơn vị đào tạo (e.g. "AWS Training", "Coursera")
+     * @param completedDate ngày hoàn thành ISO-8601 string
+     * @param score        điểm (nếu có), null nếu không có đánh giá
+     * @param issuedBy     DID của issuer
+     */
+    fun issueTrainingVC(
+        employee: EmployeeJpaEntity,
+        trainingName: String,
+        provider: String,
+        completedDate: String,
+        score: String? = null,
+        issuedBy: String = "did:fabric:trustid:org1",
+    ): String {
+        val now = Instant.now()
+        val expiry = now.plus(365 * 3, ChronoUnit.DAYS)
+        val employeeId = employee.id.toString()
+        val did = "did:fabric:trustid:$employeeId"
+
+        val credentialSubject = buildMap<String, Any?> {
+            put("id",           did)
+            put("department",   employee.department)
+            put("position",     employee.position)
+            put("trainingName", trainingName)
+            put("provider",     provider)
+            put("completedDate", completedDate)
+            put("status",       "COMPLETED")
+            if (score != null) put("score", score)
+        }
+
+        val vcBody = buildMap<String, Any> {
+            put("@context",          listOf("https://www.w3.org/2018/credentials/v1"))
+            put("type",              listOf("VerifiableCredential", "TrainingCredential"))
+            put("id",                "vc:trustid:training:$employeeId:${now.epochSecond}")
+            put("issuer",            issuedBy)
+            put("issuanceDate",      now.toString())
+            put("expirationDate",    expiry.toString())
+            put("credentialSubject", credentialSubject)
+            credentialStatusFor(employee.id)?.let { put("credentialStatus", it) }
+        }
+
+        val vcBodyJson = objectMapper.writeValueAsString(vcBody)
+        val proofValue = hmacSha256(vcBodyJson)
+        val vcWithProof = vcBody + mapOf(
+            "proof" to mapOf(
+                "type"               to "HMAC-SHA256",
+                "created"            to now.toString(),
+                "verificationMethod" to "$issuedBy#key-1",
+                "proofValue"         to proofValue,
+            )
+        )
+        return objectMapper.writeValueAsString(vcWithProof)
+    }
+
+    /**
+     * Phát hành NDA-AcceptedVC khi nhân viên ký kết NDA.
+     *
+     * Không lộ nội dung NDA — chỉ xác nhận "đã ký NDA với tổ chức issuer".
+     * docHash giúp Verifier confirm NDA version mà không đọc nội dung.
+     *
+     * @param employee   nhân viên sở hữu credential
+     * @param ndaTitle   tiêu đề NDA (e.g. "General Employee NDA 2026")
+     * @param docHash    SHA-256 hex của PDF NDA (tính phía backend trước khi gọi)
+     * @param signedDate ngày ký ISO-8601 string
+     * @param issuedBy   DID của issuer
+     */
+    fun issueNdaAcceptedVC(
+        employee: EmployeeJpaEntity,
+        ndaTitle: String,
+        docHash: String,
+        signedDate: String,
+        issuedBy: String = "did:fabric:trustid:org1",
+    ): String {
+        val now = Instant.now()
+        val employeeId = employee.id.toString()
+        val did = "did:fabric:trustid:$employeeId"
+
+        val credentialSubject = mapOf(
+            "id"         to did,
+            "ndaTitle"   to ndaTitle,
+            "docHash"    to docHash,
+            "signedDate" to signedDate,
+            "status"     to "ACCEPTED",
+            "issuedBy"   to issuedBy,
+        )
+
+        val vcBody = buildMap<String, Any> {
+            put("@context",          listOf("https://www.w3.org/2018/credentials/v1"))
+            put("type",              listOf("VerifiableCredential", "NDAAcceptedCredential"))
+            put("id",                "vc:trustid:nda:$employeeId:${now.epochSecond}")
+            put("issuer",            issuedBy)
+            put("issuanceDate",      now.toString())
+            put("credentialSubject", credentialSubject)
+            credentialStatusFor(employee.id)?.let { put("credentialStatus", it) }
+        }
+
+        val vcBodyJson = objectMapper.writeValueAsString(vcBody)
+        val proofValue = hmacSha256(vcBodyJson)
+        val vcWithProof = vcBody + mapOf(
+            "proof" to mapOf(
+                "type"               to "HMAC-SHA256",
+                "created"            to now.toString(),
+                "verificationMethod" to "$issuedBy#key-1",
+                "proofValue"         to proofValue,
+            )
+        )
         return objectMapper.writeValueAsString(vcWithProof)
     }
 

@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.mpcorp.identity.domain.entity.ContractEntity
 import com.mpcorp.identity.domain.entity.PayrollEntity
 import com.mpcorp.identity.domain.entity.ProfileEntity
+import org.fabric.api.model.DIDDocument
 import org.fabric.api.model.RegisterDIDRequest
 import org.fabric.api.model.RevokeDIDRequest
+import org.fabric.api.model.StatusListRecord
+import org.fabric.api.model.UpdateStatusListEntryRequest
 import org.fabric.api.model.UpsertIdentityRecordRequest
 import org.fabric.api.service.IdentityLedgerService
 import org.slf4j.LoggerFactory
@@ -386,6 +389,227 @@ class FabricLedgerBridge(
                 error        = ex.message ?: "unknown",
             )
         }
+    }
+
+    // ── Status List 2021 ──────────────────────────────────────────────────────
+
+    /**
+     * Push an updated Status List 2021 snapshot to Fabric (synchronous —
+     * the caller usually needs to know whether the on-chain write succeeded
+     * before responding to the Verifier).
+     *
+     * Unlike most bridge methods we keep this synchronous on purpose: the
+     * Verifier-facing controller fetches the encoded list from chaincode,
+     * so a delayed/queued write would race with verification reads.
+     *
+     * Failures still go to the outbox so retries can heal eventual consistency.
+     */
+    fun updateStatusListEntry(
+        listId: String,
+        encodedList: String,
+        size: Long,
+        updatedIndex: Long,
+        revoked: Boolean,
+        updatedBy: String,
+    ): StatusListRecord? {
+        return runCatching {
+            val record = ledgerService.updateStatusListEntry(
+                UpdateStatusListEntryRequest(
+                    listId       = listId,
+                    encodedList  = encodedList,
+                    size         = size,
+                    updatedIndex = updatedIndex,
+                    revoked      = revoked,
+                    updatedBy    = updatedBy,
+                )
+            )
+            log.info("[FabricBridge] StatusList updated — listId=$listId index=$updatedIndex revoked=$revoked")
+            record
+        }.getOrElse { ex ->
+            log.warn("[FabricBridge] StatusList update failed — listId=$listId index=$updatedIndex error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = "statuslist:$listId",
+                recordType   = "STATUS_LIST",
+                recordStatus = if (revoked) "REVOKED" else "ACTIVE",
+                keyFields    = objectMapper.writeValueAsString(
+                    mapOf(
+                        "listId"       to listId,
+                        "updatedIndex" to updatedIndex,
+                        "revoked"      to revoked,
+                        "size"         to size,
+                    )
+                ),
+                dataHash     = sha256("$listId:$updatedIndex:$revoked"),
+                action       = "UPDATE",
+                updatedBy    = updatedBy,
+                error        = ex.message ?: "unknown",
+            )
+            null
+        }
+    }
+
+    /**
+     * Resolves the latest StatusListRecord from the ledger.
+     * Returns null if the list has never been written (first issuance case).
+     */
+    fun getStatusList(listId: String): StatusListRecord? {
+        return runCatching {
+            ledgerService.getStatusList(listId)
+        }.getOrElse { ex ->
+            log.warn("[FabricBridge] StatusList resolve failed — listId=$listId error=${ex.message}")
+            null
+        }
+    }
+
+    // ── DID Resolver ──────────────────────────────────────────────────────────
+
+    /**
+     * Resolve a DID Document from the ledger. Propagates exceptions so callers
+     * (e.g. UniversalResolverController) can return the appropriate HTTP status.
+     */
+    fun resolveDid(did: String): DIDDocument = ledgerService.resolveDID(did)
+
+    // ── Trust Registry ────────────────────────────────────────────────────────
+
+    fun registerIssuer(did: String, name: String, role: String, scope: String, registeredBy: String) {
+        runCatching {
+            ledgerService.registerIssuer(did, name, role, scope, registeredBy)
+            log.info("[FabricBridge] Issuer registered — did=$did name=$name")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] RegisterIssuer failed — did=$did error=${ex.message}")
+        }
+    }
+
+    fun revokeIssuer(did: String, revokedBy: String) {
+        runCatching {
+            ledgerService.revokeIssuer(did, revokedBy)
+            log.info("[FabricBridge] Issuer revoked — did=$did revokedBy=$revokedBy")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] RevokeIssuer failed — did=$did error=${ex.message}")
+        }
+    }
+
+    fun listTrustedIssuers(): List<Map<String, Any?>> = runCatching {
+        ledgerService.listTrustedIssuers()
+    }.getOrElse { ex ->
+        log.warn("[FabricBridge] ListTrustedIssuers failed — error=${ex.message}")
+        emptyList()
+    }
+
+    fun isTrustedIssuer(did: String): Boolean = runCatching {
+        ledgerService.isTrustedIssuer(did)
+    }.getOrElse { false }
+
+    // ── Contract Signatures ───────────────────────────────────────────────────
+
+    fun recordSignature(
+        contractId: String,
+        signerDid: String,
+        signatureBase64: String,
+        docHash: String,
+        updatedBy: String,
+    ) {
+        runCatching {
+            ledgerService.recordSignature(contractId, signerDid, signatureBase64, docHash, updatedBy)
+            log.info("[FabricBridge] Signature recorded — contractId=$contractId signerDid=$signerDid")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] RecordSignature failed — contractId=$contractId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = "contract:$contractId",
+                recordType   = "CONTRACT_SIGNATURE",
+                recordStatus = "SIGNED",
+                keyFields    = objectMapper.writeValueAsString(mapOf("contractId" to contractId, "signerDid" to signerDid)),
+                dataHash     = sha256("$contractId:$signerDid:$docHash"),
+                action       = "CREATE",
+                updatedBy    = updatedBy,
+                error        = ex.message ?: "unknown",
+            )
+        }
+    }
+
+    fun getSignatures(contractId: String): List<Map<String, Any?>> = runCatching {
+        ledgerService.getSignatures(contractId)
+    }.getOrElse { ex ->
+        log.warn("[FabricBridge] GetSignatures failed — contractId=$contractId error=${ex.message}")
+        emptyList()
+    }
+
+    // ── Notarization ─────────────────────────────────────────────────────────
+
+    /**
+     * Anchor a document fingerprint on Fabric.
+     * Uses UpsertRecord with recordType=DOCUMENT so it integrates with the existing
+     * audit trail and GetRecordHistory chaincode functions without new chaincode code.
+     *
+     * keyFields stores non-PII metadata (filename, mimeType, label, signerDid).
+     * dataHash is SHA-256 of the original file bytes — computed by the controller.
+     */
+    @Async
+    fun upsertNotarizationRecord(
+        docId: String,
+        docHash: String,
+        filename: String,
+        mimeType: String,
+        label: String,
+        signerDid: String,
+        updatedBy: String,
+    ) {
+        val keyFields = objectMapper.writeValueAsString(
+            mapOf(
+                "docId"     to docId,
+                "filename"  to filename,
+                "mimeType"  to mimeType,
+                "label"     to label,
+                "signerDid" to signerDid,
+            )
+        )
+        runCatching {
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId   = "document:$docId",
+                    recordType   = "DOCUMENT",
+                    status       = "ACTIVE",
+                    keyFields    = keyFields,
+                    dataHash     = docHash,
+                    action       = "NOTARIZE",
+                    updatedBy    = updatedBy,
+                )
+            )
+            log.info("[FabricBridge] Document notarized — docId=$docId signerDid=$signerDid hash=$docHash")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] Notarization failed — docId=$docId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = "document:$docId",
+                recordType   = "DOCUMENT",
+                recordStatus = "ACTIVE",
+                keyFields    = keyFields,
+                dataHash     = docHash,
+                action       = "NOTARIZE",
+                updatedBy    = updatedBy,
+                error        = ex.message ?: "unknown",
+            )
+        }
+    }
+
+    /**
+     * Retrieve notarization record from on-chain by docId.
+     * Returns null if the record has never been written.
+     */
+    fun getNotarizationRecord(docId: String): Map<String, Any?>? = runCatching {
+        val record = ledgerService.getRecord("DOCUMENT", "document:$docId")
+        mapOf(
+            "recordId"   to record.recordId,
+            "recordType" to record.recordType,
+            "status"     to record.status,
+            "dataHash"   to record.dataHash,
+            "keyFields"  to record.keyFields,
+            "action"     to record.action,
+            "timestamp"  to record.timestamp,
+            "updatedBy"  to record.updatedBy,
+        )
+    }.getOrElse { ex ->
+        log.warn("[FabricBridge] GetNotarizationRecord failed — docId=$docId error=${ex.message}")
+        null
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -27,4 +27,21 @@ data class AuthJpaEntity (
     @Column(name = "account_status")
     @Enumerated(EnumType.STRING)
     var accountStatus: AccountStatus = AccountStatus.ACTIVE,
+
+    // MFA (TOTP RFC 6238)
+    @Column(name = "mfa_secret")
+    var mfaSecret: String? = null,
+
+    @Column(name = "mfa_enabled")
+    var mfaEnabled: Boolean = false,
+
+    @Column(name = "mfa_backup_codes", columnDefinition = "TEXT")
+    var mfaBackupCodes: String? = null,
+
+    // Account lockout
+    @Column(name = "failed_login_attempts")
+    var failedLoginAttempts: Int = 0,
+
+    @Column(name = "locked_until")
+    var lockedUntil: java.sql.Timestamp? = null,
 )
