@@ -114,11 +114,20 @@ function toUserMessage(e: unknown): string {
 /** Verify a standard W3C VC (JSON string) */
 export async function verifyVC(vcJson: string): Promise<VcVerifyResult> {
   try {
-    const res = await post<{ valid: boolean; reason: string }>('/api/v1/identity/vc/verify', { vcJson })
+    // Backend bọc kết quả trong ApiResponse { status, message, data } và đòi field 'vc'.
+    const res = await post<{ data: { valid: boolean; reason: string } }>(
+      '/api/v1/identity/vc/verify',
+      { vc: vcJson },
+    )
+    const d = res.data
     return {
-      valid: res.valid,
-      status: res.valid ? 'VALID' : 'INVALID',
-      reason: res.reason ?? '',
+      valid: d.valid,
+      status: d.valid
+        ? 'VALID'
+        : (d.reason ?? '').toLowerCase().includes('revoked')
+          ? 'REVOKED'
+          : 'INVALID',
+      reason: d.reason ?? '',
     }
   } catch (e) {
     return { valid: false, status: 'ERROR', reason: toUserMessage(e) }
@@ -128,22 +137,30 @@ export async function verifyVC(vcJson: string): Promise<VcVerifyResult> {
 /** Verify an SD-JWT presentation (compact format: header.payload.sig~d1~d2~) */
 export async function verifySdJwt(presentation: string): Promise<VcVerifyResult> {
   try {
+    // Backend bọc trong ApiResponse.data và dùng tên field issuer/subject/vct.
     const res = await post<{
-      valid: boolean
-      reason: string
-      disclosedClaims?: Record<string, unknown>
-      subjectDid?: string
-      issuerDid?: string
-      vcType?: string
+      data: {
+        valid: boolean
+        reason: string
+        disclosedClaims?: Record<string, unknown>
+        subject?: string
+        issuer?: string
+        vct?: string
+      }
     }>('/api/v1/sd-jwt/verify', { presentation })
+    const d = res.data
     return {
-      valid: res.valid,
-      status: res.valid ? 'VALID' : 'INVALID',
-      reason: res.reason ?? '',
-      disclosedClaims: res.disclosedClaims,
-      subjectDid: res.subjectDid,
-      issuerDid: res.issuerDid,
-      vcType: res.vcType ? [res.vcType] : undefined,
+      valid: d.valid,
+      status: d.valid
+        ? 'VALID'
+        : (d.reason ?? '').toLowerCase().includes('revoked')
+          ? 'REVOKED'
+          : 'INVALID',
+      reason: d.reason ?? '',
+      disclosedClaims: d.disclosedClaims,
+      subjectDid: d.subject,
+      issuerDid: d.issuer,
+      vcType: d.vct ? [d.vct] : undefined,
     }
   } catch (e) {
     return { valid: false, status: 'ERROR', reason: toUserMessage(e) }
@@ -152,7 +169,18 @@ export async function verifySdJwt(presentation: string): Promise<VcVerifyResult>
 
 /** Resolve a DID via the DIF Universal Resolver-compatible endpoint */
 export async function resolveDID(did: string): Promise<DIDDocument> {
-  return get<DIDDocument>(`/1.0/identifiers/${encodeURIComponent(did)}`)
+  // Backend trả DID Resolution Result: { didDocument, didDocumentMetadata, didResolutionMetadata }.
+  // Web cần gộp didDocument với metadata để khớp interface DIDDocument.
+  const res = await get<{
+    didDocument: Omit<DIDDocument, 'didDocumentMetadata' | 'didResolutionMetadata'>
+    didDocumentMetadata: DIDDocument['didDocumentMetadata']
+    didResolutionMetadata: DIDDocument['didResolutionMetadata']
+  }>(`/1.0/identifiers/${encodeURIComponent(did)}`)
+  return {
+    ...res.didDocument,
+    didDocumentMetadata: res.didDocumentMetadata,
+    didResolutionMetadata: res.didResolutionMetadata,
+  }
 }
 
 /** List trusted issuers from the on-chain Trust Registry */
@@ -163,6 +191,46 @@ export async function listTrustedIssuers(): Promise<TrustedIssuer[]> {
 /** Get the W3C Status List 2021 credential for a given listId */
 export async function getStatusList(listId: string): Promise<Record<string, unknown>> {
   return get<Record<string, unknown>>(`/api/v1/status-list/${listId}`)
+}
+
+// ── OID4VP (QR request flow) ────────────────────────────────────────────────
+
+export interface VpRequestSession {
+  state: string
+  nonce: string
+  expiresIn: number
+  /** OID4VP Authorization Request — encode toàn bộ object này thành QR cho Holder quét. */
+  authorizationRequest: unknown
+}
+
+export type VpResultStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED'
+
+export interface VpResult {
+  state: string
+  status: VpResultStatus
+  valid?: boolean
+  reason?: string
+  disclosedFields?: Record<string, unknown>
+}
+
+/** Verifier tạo VP Request → nhận authorizationRequest để render QR + state để poll. */
+export async function createVpRequest(
+  vcType: string,
+  requestedClaims: string[],
+): Promise<VpRequestSession> {
+  const res = await post<{ data: VpRequestSession }>('/api/v1/oidc/vp/request', {
+    vcType,
+    requestedClaims,
+  })
+  return res.data
+}
+
+/** Poll kết quả sau khi Holder quét QR và gửi VP. */
+export async function pollVpResult(state: string): Promise<VpResult> {
+  const res = await get<{ data: VpResult }>(
+    `/api/v1/oidc/vp/result/${encodeURIComponent(state)}`,
+  )
+  return res.data
 }
 
 /** Auto-detect payload type and verify */

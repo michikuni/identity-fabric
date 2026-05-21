@@ -1,43 +1,140 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { smartVerify, type VcVerifyResult } from '../lib/trustid-client'
+import {
+  smartVerify,
+  createVpRequest,
+  pollVpResult,
+  type VcVerifyResult,
+  type VpResult,
+} from '../lib/trustid-client'
 
 type InputMode = 'paste' | 'qr-request'
 
-const SKILL_PROOF_REQUEST = JSON.stringify({
-  type: 'VerifiablePresentationRequest',
-  challenge: crypto.randomUUID(),
-  domain: window.location.origin,
-  query: [{ type: 'QueryByExample', credentialQuery: [{ reason: 'Job application skill check', example: { type: 'SkillCredential' } }] }],
-  callbackUrl: `${window.location.origin}/verify`,
-}, null, 2)
+// Đồng bộ với kVcSchemas (Flutter) + VcIssuerService (backend).
+const VC_SCHEMAS: Record<string, { label: string; fields: string[] }> = {
+  EmploymentCredential: {
+    label: 'Employment Credential',
+    fields: ['department', 'position', 'employmentStatus', 'startDate'],
+  },
+  SalaryRangeCredential: {
+    label: 'Salary Range Credential',
+    fields: ['salaryBand', 'currency', 'position', 'department', 'issuedAt'],
+  },
+  PromotionCredential: {
+    label: 'Promotion Credential',
+    fields: ['department', 'oldPosition', 'newPosition', 'promotionDate', 'promotedBy'],
+  },
+  TerminationCredential: {
+    label: 'Termination Credential',
+    fields: ['department', 'position', 'employmentStatus', 'terminationDate', 'terminationReason', 'revokedBy'],
+  },
+}
+
+function humanize(key: string): string {
+  return key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim()
+}
 
 export default function Home() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<InputMode>('paste')
+
+  // ── Paste mode ──
   const [payload, setPayload] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // ── QR request (OID4VP) mode ──
+  const [vcType, setVcType] = useState<string>('EmploymentCredential')
+  const [selected, setSelected] = useState<Set<string>>(new Set(['employmentStatus', 'position']))
+  const [creating, setCreating] = useState(false)
+  const [state, setState] = useState<string | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState('')
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [result, setResult] = useState<VpResult | null>(null)
+  const [qrError, setQrError] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    if (mode === 'qr-request') {
-      QRCode.toDataURL(SKILL_PROOF_REQUEST, { width: 256, margin: 2 })
-        .then(setQrDataUrl)
-        .catch(console.error)
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
     }
-  }, [mode])
+  }, [])
 
-  async function handleVerify() {
+  useEffect(() => stopPolling, [stopPolling])
+
+  // Reset selection khi đổi loại VC
+  function changeVcType(t: string) {
+    setVcType(t)
+    setSelected(new Set())
+    resetRequest()
+  }
+
+  function toggleClaim(field: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(field) ? next.delete(field) : next.add(field)
+      return next
+    })
+    resetRequest()
+  }
+
+  function resetRequest() {
+    stopPolling()
+    setState(null)
+    setQrDataUrl('')
+    setResult(null)
+    setQrError('')
+  }
+
+  async function handleVerifyPaste() {
     if (!payload.trim()) return
     setLoading(true)
     try {
-      const result: VcVerifyResult = await smartVerify(payload.trim())
-      navigate('/verify', { state: { result, raw: payload.trim() } })
+      const res: VcVerifyResult = await smartVerify(payload.trim())
+      navigate('/verify', { state: { result: res, raw: payload.trim() } })
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleCreateQr() {
+    if (selected.size === 0) {
+      setQrError('Select at least one claim to request.')
+      return
+    }
+    setCreating(true)
+    setQrError('')
+    setResult(null)
+    try {
+      const session = await createVpRequest(vcType, [...selected])
+      setState(session.state)
+      const url = await QRCode.toDataURL(JSON.stringify(session.authorizationRequest), {
+        width: 280,
+        margin: 2,
+        errorCorrectionLevel: 'L',
+      })
+      setQrDataUrl(url)
+      startPolling(session.state)
+    } catch (e) {
+      setQrError(e instanceof Error ? e.message : 'Failed to create VP request.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  function startPolling(s: string) {
+    stopPolling()
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await pollVpResult(s)
+        if (r.status !== 'PENDING') {
+          stopPolling()
+          setResult(r)
+        }
+      } catch {
+        /* keep polling; transient errors ignored */
+      }
+    }, 2500)
   }
 
   return (
@@ -83,7 +180,7 @@ export default function Home() {
                 spellCheck={false}
               />
               <button
-                onClick={handleVerify}
+                onClick={handleVerifyPaste}
                 disabled={!payload.trim() || loading}
                 className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-lg transition-colors"
               >
@@ -91,25 +188,93 @@ export default function Home() {
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <p className="text-sm text-gray-600">
-                Scan this QR with the <strong>TrustID Holder app</strong>. The holder selects claims to disclose
-                and sends an SD-JWT presentation back. Once you receive the presentation, paste it in the
-                <button onClick={() => setMode('paste')} className="text-brand-600 underline mx-1">Paste tab</button>
-                above to verify.
+                Pick a credential type and the exact claims you want proven, then generate a request QR.
+                The holder scans it with the <strong>TrustID app</strong>, approves the disclosure, and the
+                result appears here automatically — no copy-paste needed.
               </p>
-              <div className="flex flex-col items-center gap-4">
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="VP Request QR" className="rounded-xl border border-gray-200 shadow-sm" width={256} height={256} />
-                ) : (
-                  <div className="w-64 h-64 bg-gray-100 rounded-xl animate-pulse" />
-                )}
-                <canvas ref={canvasRef} className="hidden" />
-                <div className="bg-gray-50 rounded-lg border border-gray-200 p-3 w-full">
-                  <p className="text-xs text-gray-500 font-medium mb-1">VP Request payload</p>
-                  <pre className="text-xs text-gray-700 overflow-auto max-h-32 whitespace-pre-wrap break-all">{SKILL_PROOF_REQUEST}</pre>
+
+              {/* VC type selector */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Credential type</label>
+                <select
+                  value={vcType}
+                  onChange={e => changeVcType(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  {Object.entries(VC_SCHEMAS).map(([type, s]) => (
+                    <option key={type} value={type}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Claim checkboxes */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Claims to request</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {VC_SCHEMAS[vcType].fields.map(field => (
+                    <label
+                      key={field}
+                      className={`flex items-center gap-2 rounded-lg border p-2.5 text-sm cursor-pointer transition-colors ${selected.has(field) ? 'border-brand-400 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(field)}
+                        onChange={() => toggleClaim(field)}
+                        className="accent-brand-600"
+                      />
+                      {humanize(field)}
+                    </label>
+                  ))}
                 </div>
               </div>
+
+              {qrError && <p className="text-sm text-red-600">{qrError}</p>}
+
+              {!state ? (
+                <button
+                  onClick={handleCreateQr}
+                  disabled={creating || selected.size === 0}
+                  className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  {creating ? 'Creating request…' : 'Generate Request QR'}
+                </button>
+              ) : (
+                <div className="flex flex-col items-center gap-4">
+                  {qrDataUrl && (
+                    <img src={qrDataUrl} alt="VP Request QR" className="rounded-xl border border-gray-200 shadow-sm" width={280} height={280} />
+                  )}
+
+                  {/* Status */}
+                  {!result ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      Waiting for holder to scan and approve…
+                    </div>
+                  ) : result.status === 'ACCEPTED' ? (
+                    <div className="w-full bg-green-50 border border-green-200 rounded-xl p-4">
+                      <p className="text-green-800 font-semibold mb-2">✅ Verified — holder shared:</p>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {Object.entries(result.disclosedFields ?? {}).map(([k, v]) => (
+                          <div key={k} className="flex justify-between text-sm">
+                            <span className="text-gray-500">{humanize(k)}</span>
+                            <span className="text-gray-900 font-medium">{String(v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+                      ❌ Rejected{result.reason ? `: ${result.reason}` : ''}
+                    </div>
+                  )}
+
+                  <button onClick={resetRequest} className="text-brand-600 underline text-sm">
+                    New request
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
