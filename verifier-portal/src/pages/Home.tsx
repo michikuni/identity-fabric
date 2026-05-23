@@ -8,25 +8,21 @@ import {
   type VcVerifyResult,
   type VpResult,
 } from '../lib/trustid-client'
+import { useTranslation } from '../i18n/I18nContext'
 
 type InputMode = 'paste' | 'qr-request'
 
-// Đồng bộ với kVcSchemas (Flutter) + VcIssuerService (backend).
-const VC_SCHEMAS: Record<string, { label: string; fields: string[] }> = {
+const VC_SCHEMAS: Record<string, { fields: string[] }> = {
   EmploymentCredential: {
-    label: 'Employment Credential',
     fields: ['department', 'position', 'employmentStatus', 'startDate'],
   },
   SalaryRangeCredential: {
-    label: 'Salary Range Credential',
     fields: ['salaryBand', 'currency', 'position', 'department', 'issuedAt'],
   },
   PromotionCredential: {
-    label: 'Promotion Credential',
     fields: ['department', 'oldPosition', 'newPosition', 'promotionDate', 'promotedBy'],
   },
   TerminationCredential: {
-    label: 'Termination Credential',
     fields: ['department', 'position', 'employmentStatus', 'terminationDate', 'terminationReason', 'revokedBy'],
   },
 }
@@ -37,7 +33,17 @@ function humanize(key: string): string {
 
 export default function Home() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [mode, setMode] = useState<InputMode>('paste')
+
+  const fieldLabel = (key: string) => {
+    const translated = t(`fields.${key}`)
+    return translated === `fields.${key}` ? humanize(key) : translated
+  }
+  const schemaLabel = (key: string) => {
+    const translated = t(`schemas.${key}`)
+    return translated === `schemas.${key}` ? humanize(key) : translated
+  }
 
   // ── Paste mode ──
   const [payload, setPayload] = useState('')
@@ -62,7 +68,6 @@ export default function Home() {
 
   useEffect(() => stopPolling, [stopPolling])
 
-  // Reset selection khi đổi loại VC
   function changeVcType(t: string) {
     setVcType(t)
     setSelected(new Set())
@@ -99,7 +104,7 @@ export default function Home() {
 
   async function handleCreateQr() {
     if (selected.size === 0) {
-      setQrError('Select at least one claim to request.')
+      setQrError(t('home.qrSelectAtLeastOne'))
       return
     }
     setCreating(true)
@@ -116,7 +121,7 @@ export default function Home() {
       setQrDataUrl(url)
       startPolling(session.state)
     } catch (e) {
-      setQrError(e instanceof Error ? e.message : 'Failed to create VP request.')
+      setQrError(e instanceof Error ? e.message : t('home.qrFailedCreate'))
     } finally {
       setCreating(false)
     }
@@ -142,11 +147,8 @@ export default function Home() {
       {/* Hero */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 text-center">
         <div className="text-5xl mb-4">🔍</div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Credential Verifier</h1>
-        <p className="text-gray-500 max-w-lg mx-auto">
-          Independently verify W3C Verifiable Credentials and SD-JWT presentations issued by TrustID.
-          No account required — operates as a standalone third-party verifier.
-        </p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('home.heroTitle')}</h1>
+        <p className="text-gray-500 max-w-lg mx-auto">{t('home.heroSubtitle')}</p>
       </div>
 
       {/* Mode tabs */}
@@ -156,13 +158,13 @@ export default function Home() {
             onClick={() => setMode('paste')}
             className={`flex-1 py-3 text-sm font-medium transition-colors ${mode === 'paste' ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-600' : 'text-gray-500 hover:text-gray-900'}`}
           >
-            📋 Paste Credential
+            {t('home.tabPaste')}
           </button>
           <button
             onClick={() => setMode('qr-request')}
             className={`flex-1 py-3 text-sm font-medium transition-colors ${mode === 'qr-request' ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-600' : 'text-gray-500 hover:text-gray-900'}`}
           >
-            📱 Request via QR
+            {t('home.tabQr')}
           </button>
         </div>
 
@@ -170,11 +172,11 @@ export default function Home() {
           {mode === 'paste' ? (
             <div className="space-y-4">
               <label className="block text-sm font-medium text-gray-700">
-                Paste W3C VC (JSON) or SD-JWT presentation
+                {t('home.pasteLabel')}
               </label>
               <textarea
                 className="w-full h-48 rounded-lg border border-gray-300 p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                placeholder={`Paste either:\n• W3C VC JSON:  { "@context": [...], "type": ["VerifiableCredential", ...], ... }\n• SD-JWT:       eyJ...~disclosure1~disclosure2~`}
+                placeholder={t('home.pastePlaceholder')}
                 value={payload}
                 onChange={e => setPayload(e.target.value)}
                 spellCheck={false}
@@ -184,34 +186,30 @@ export default function Home() {
                 disabled={!payload.trim() || loading}
                 className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-lg transition-colors"
               >
-                {loading ? 'Verifying…' : 'Verify Credential'}
+                {loading ? t('common.verifying') : t('home.pasteButton')}
               </button>
             </div>
           ) : (
             <div className="space-y-5">
-              <p className="text-sm text-gray-600">
-                Pick a credential type and the exact claims you want proven, then generate a request QR.
-                The holder scans it with the <strong>TrustID app</strong>, approves the disclosure, and the
-                result appears here automatically — no copy-paste needed.
-              </p>
+              <p className="text-sm text-gray-600">{t('home.qrIntro')}</p>
 
               {/* VC type selector */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Credential type</label>
+                <label className="block text-sm font-medium text-gray-700">{t('home.qrCredentialType')}</label>
                 <select
                   value={vcType}
                   onChange={e => changeVcType(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
-                  {Object.entries(VC_SCHEMAS).map(([type, s]) => (
-                    <option key={type} value={type}>{s.label}</option>
+                  {Object.keys(VC_SCHEMAS).map(type => (
+                    <option key={type} value={type}>{schemaLabel(type)}</option>
                   ))}
                 </select>
               </div>
 
               {/* Claim checkboxes */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Claims to request</label>
+                <label className="block text-sm font-medium text-gray-700">{t('home.qrClaims')}</label>
                 <div className="grid grid-cols-2 gap-2">
                   {VC_SCHEMAS[vcType].fields.map(field => (
                     <label
@@ -224,7 +222,7 @@ export default function Home() {
                         onChange={() => toggleClaim(field)}
                         className="accent-brand-600"
                       />
-                      {humanize(field)}
+                      {fieldLabel(field)}
                     </label>
                   ))}
                 </div>
@@ -238,7 +236,7 @@ export default function Home() {
                   disabled={creating || selected.size === 0}
                   className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white font-semibold py-2.5 rounded-lg transition-colors"
                 >
-                  {creating ? 'Creating request…' : 'Generate Request QR'}
+                  {creating ? t('home.qrCreating') : t('home.qrCreateButton')}
                 </button>
               ) : (
                 <div className="flex flex-col items-center gap-4">
@@ -250,15 +248,15 @@ export default function Home() {
                   {!result ? (
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                      Waiting for holder to scan and approve…
+                      {t('home.qrWaiting')}
                     </div>
                   ) : result.status === 'ACCEPTED' ? (
                     <div className="w-full bg-green-50 border border-green-200 rounded-xl p-4">
-                      <p className="text-green-800 font-semibold mb-2">✅ Verified — holder shared:</p>
+                      <p className="text-green-800 font-semibold mb-2">{t('home.qrVerifiedTitle')}</p>
                       <div className="grid grid-cols-1 gap-1.5">
                         {Object.entries(result.disclosedFields ?? {}).map(([k, v]) => (
                           <div key={k} className="flex justify-between text-sm">
-                            <span className="text-gray-500">{humanize(k)}</span>
+                            <span className="text-gray-500">{fieldLabel(k)}</span>
                             <span className="text-gray-900 font-medium">{String(v)}</span>
                           </div>
                         ))}
@@ -266,12 +264,12 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-                      ❌ Rejected{result.reason ? `: ${result.reason}` : ''}
+                      {t('home.qrRejected')}{result.reason ? `: ${result.reason}` : ''}
                     </div>
                   )}
 
                   <button onClick={resetRequest} className="text-brand-600 underline text-sm">
-                    New request
+                    {t('common.newRequest')}
                   </button>
                 </div>
               )}
@@ -283,9 +281,9 @@ export default function Home() {
       {/* Info cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { icon: '🏛️', title: 'W3C VC Support', desc: 'Employment, Salary, Promotion, Termination credentials issued by TrustID.' },
-          { icon: '🔏', title: 'SD-JWT Selective Disclosure', desc: 'Verify only the fields the holder chooses to share — issuer signature still validated.' },
-          { icon: '📋', title: 'Trust Registry', desc: 'All issuers cross-checked against the on-chain Trust Registry (EBSI / eIDAS pattern).' },
+          { icon: '🏛️', title: t('home.cardW3cTitle'), desc: t('home.cardW3cDesc') },
+          { icon: '🔏', title: t('home.cardSdJwtTitle'), desc: t('home.cardSdJwtDesc') },
+          { icon: '📋', title: t('home.cardRegistryTitle'), desc: t('home.cardRegistryDesc') },
         ].map(card => (
           <div key={card.title} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
             <div className="text-2xl mb-2">{card.icon}</div>

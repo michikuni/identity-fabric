@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { tStatic } from '../i18n/I18nContext'
 
 interface Props {
   children: ReactNode
@@ -16,7 +17,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: unknown): State {
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred.'
+    const message = error instanceof Error ? error.message : tStatic('common.unexpectedError')
     return { hasError: true, message }
   }
 
@@ -26,13 +27,13 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
           <div className="max-w-md w-full bg-white rounded-2xl border border-red-200 shadow-sm p-8 text-center space-y-4">
             <div className="text-5xl">⚠️</div>
-            <h2 className="text-lg font-semibold text-gray-900">Something went wrong</h2>
+            <h2 className="text-lg font-semibold text-gray-900">{tStatic('common.somethingWentWrong')}</h2>
             <p className="text-sm text-gray-500">{this.state.message}</p>
             <button
               onClick={() => window.location.reload()}
               className="mt-2 bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2 rounded-lg transition-colors text-sm"
             >
-              Reload page
+              {tStatic('common.reload')}
             </button>
           </div>
         </div>

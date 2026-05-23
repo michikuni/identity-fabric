@@ -1,3 +1,5 @@
+import { tStatic } from '../i18n/I18nContext'
+
 const BASE = import.meta.env.VITE_BACKEND_URL ?? ''
 
 export type VerifyStatus = 'VALID' | 'INVALID' | 'REVOKED' | 'EXPIRED' | 'ERROR'
@@ -65,17 +67,17 @@ function friendlyHttpError(status: number, body: string): string {
   } catch { /* not JSON */ }
 
   switch (status) {
-    case 400: return 'Invalid request. Please check your input.'
-    case 401: return 'Authentication required. Please sign in again.'
-    case 403: return 'You do not have permission to perform this action.'
-    case 404: return 'The requested resource was not found.'
-    case 409: return 'Conflict — this credential may already exist.'
-    case 422: return 'Unprocessable request. Please check your input.'
-    case 429: return 'Too many requests. Please wait a moment and try again.'
-    case 500: return 'Server error. Please try again later.'
+    case 400: return tStatic('errors.http400')
+    case 401: return tStatic('errors.http401')
+    case 403: return tStatic('errors.http403')
+    case 404: return tStatic('errors.http404')
+    case 409: return tStatic('errors.http409')
+    case 422: return tStatic('errors.http422')
+    case 429: return tStatic('errors.http429')
+    case 500: return tStatic('errors.http500')
     case 502:
-    case 503: return 'Service temporarily unavailable. Please try again later.'
-    default:  return `Request failed (HTTP ${status}). Please try again.`
+    case 503: return tStatic('errors.http503')
+    default:  return tStatic('errors.httpDefault', { status })
   }
 }
 
@@ -104,11 +106,11 @@ async function get<T>(path: string): Promise<T> {
 function toUserMessage(e: unknown): string {
   if (e instanceof Error) {
     if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
-      return 'Cannot reach the server. Please check your connection and try again.'
+      return tStatic('errors.networkUnreachable')
     }
     return e.message
   }
-  return 'An unexpected error occurred.'
+  return tStatic('common.unexpectedError')
 }
 
 /** Verify a standard W3C VC (JSON string) */
@@ -243,6 +245,6 @@ export async function smartVerify(payload: string): Promise<VcVerifyResult> {
     JSON.parse(trimmed)
     return verifyVC(trimmed)
   } catch {
-    return { valid: false, status: 'ERROR', reason: 'Cannot parse payload — expected JSON (W3C VC) or compact SD-JWT' }
+    return { valid: false, status: 'ERROR', reason: tStatic('errors.cannotParsePayload') }
   }
 }
