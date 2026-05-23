@@ -500,6 +500,99 @@ class FabricLedgerBridge(
         ledgerService.isTrustedIssuer(did)
     }.getOrElse { false }
 
+    // ── Verifiable Credentials ────────────────────────────────────────────────
+
+    /**
+     * Anchor a Verifiable Credential on the ledger. Only the SHA-256 hash of the
+     * full VC JSON is stored on-chain plus non-sensitive metadata (vc id, type,
+     * issuer, subject, dates) in keyFields. The credentialSubject (PII) is never
+     * sent to the chain.
+     *
+     * @param employeeId  ID of the credential subject (used as ledger primary key)
+     * @param vcRecordType  e.g. "EMPLOYMENT_VC", "SALARY_RANGE_VC", "PROMOTION_VC",
+     *                      "SKILL_VC", "EDUCATION_VC", "TRAINING_VC", "NDA_VC"
+     * @param vcJsonOrCompact  The W3C VC JSON string or SD-JWT compact string
+     * @param action  "ISSUE" | "REISSUE" | "REVOKE"
+     * @param updatedBy  actor email/id
+     */
+    @Async
+    fun upsertVcRecord(
+        employeeId: String,
+        vcRecordType: String,
+        vcJsonOrCompact: String,
+        action: String = "ISSUE",
+        updatedBy: String = "system",
+    ) {
+        val meta = extractVcMetadata(vcJsonOrCompact)
+        val keyFields = objectMapper.writeValueAsString(meta)
+        val dataHash  = sha256(vcJsonOrCompact)
+        val status    = if (action == "REVOKE") "REVOKED" else "ACTIVE"
+
+        runCatching {
+            ledgerService.upsertRecord(
+                UpsertIdentityRecordRequest(
+                    employeeId = employeeId,
+                    recordType = vcRecordType,
+                    status     = status,
+                    keyFields  = keyFields,
+                    dataHash   = dataHash,
+                    action     = action,
+                    updatedBy  = updatedBy,
+                )
+            )
+            log.info("[FabricBridge] $vcRecordType written — employeeId=$employeeId action=$action hash=$dataHash")
+        }.onFailure { ex ->
+            log.warn("[FabricBridge] $vcRecordType write failed, enqueuing for retry — employeeId=$employeeId error=${ex.message}")
+            outboxService.enqueue(
+                employeeId   = employeeId,
+                recordType   = vcRecordType,
+                recordStatus = status,
+                keyFields    = keyFields,
+                dataHash     = dataHash,
+                action       = action,
+                updatedBy    = updatedBy,
+                error        = ex.message ?: "unknown",
+            )
+        }
+    }
+
+    /**
+     * Extract non-sensitive metadata from a VC for the on-chain keyFields field.
+     * Supports both W3C VC JSON and SD-JWT compact format. Returns an empty map
+     * (safe fallback) if parsing fails — the hash still gets anchored.
+     */
+    private fun extractVcMetadata(vcJsonOrCompact: String): Map<String, Any?> {
+        return runCatching {
+            if (vcJsonOrCompact.contains("~")) {
+                // SD-JWT compact: <jwt>~<d1>~<d2>~ — parse the JWT payload
+                val jwt = vcJsonOrCompact.substringBefore("~")
+                val payloadB64 = jwt.split(".").getOrNull(1) ?: return@runCatching emptyMap<String, Any?>()
+                val payloadBytes = java.util.Base64.getUrlDecoder().decode(payloadB64)
+                @Suppress("UNCHECKED_CAST")
+                val payload = objectMapper.readValue(payloadBytes, Map::class.java) as Map<String, Any?>
+                mapOf(
+                    "vct"            to payload["vct"],
+                    "issuer"         to payload["iss"],
+                    "subject"        to payload["sub"],
+                    "issuanceDate"   to payload["iat"]?.toString(),
+                    "expirationDate" to payload["exp"]?.toString(),
+                )
+            } else {
+                @Suppress("UNCHECKED_CAST")
+                val vc = objectMapper.readValue(vcJsonOrCompact, Map::class.java) as Map<String, Any?>
+                val subject = (vc["credentialSubject"] as? Map<*, *>)?.get("id")
+                mapOf(
+                    "vcId"           to vc["id"],
+                    "type"           to vc["type"],
+                    "issuer"         to vc["issuer"],
+                    "subject"        to subject,
+                    "issuanceDate"   to vc["issuanceDate"],
+                    "expirationDate" to vc["expirationDate"],
+                )
+            }
+        }.getOrElse { emptyMap() }
+    }
+
     // ── Contract Signatures ───────────────────────────────────────────────────
 
     fun recordSignature(

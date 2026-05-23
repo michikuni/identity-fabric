@@ -1,12 +1,14 @@
 package com.mpcorp.identity.presentation.controller
 
 import com.mpcorp.identity.common.response.ApiResponse
+import com.mpcorp.identity.infrastructures.fabric.FabricLedgerBridge
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
 import com.mpcorp.identity.infrastructures.vc.SdJwtIssuer
 import com.mpcorp.identity.infrastructures.vc.SdJwtVerifier
 import com.mpcorp.identity.infrastructures.vc.VcIssuerService
 import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ResponseStatusException
 
@@ -33,7 +35,11 @@ class SdJwtController(
     private val sdJwtIssuer: SdJwtIssuer,
     private val sdJwtVerifier: SdJwtVerifier,
     private val employeeJpaRepository: EmployeeJpaRepository,
+    private val fabricBridge: FabricLedgerBridge,
 ) {
+
+    private fun currentActor(): String =
+        SecurityContextHolder.getContext().authentication?.name ?: "system"
 
     // ── DTOs ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +86,13 @@ class SdJwtController(
         val issued = vcIssuerService.issueSkillSdJwt(employee, body.skills)
         employee.skillSdJwt = issued.sdJwt
         employeeJpaRepository.save(employee)
+        fabricBridge.upsertVcRecord(
+            employeeId      = employeeId.toString(),
+            vcRecordType    = "SKILL_VC",
+            vcJsonOrCompact = issued.sdJwt,
+            action          = "ISSUE",
+            updatedBy       = currentActor(),
+        )
         return ApiResponse(
             status  = "200",
             message = "SkillCredential SD-JWT issued",
@@ -104,6 +117,13 @@ class SdJwtController(
         val issued = vcIssuerService.issueEducationSdJwt(employee, body.education)
         employee.educationSdJwt = issued.sdJwt
         employeeJpaRepository.save(employee)
+        fabricBridge.upsertVcRecord(
+            employeeId      = employeeId.toString(),
+            vcRecordType    = "EDUCATION_VC",
+            vcJsonOrCompact = issued.sdJwt,
+            action          = "ISSUE",
+            updatedBy       = currentActor(),
+        )
         return ApiResponse(
             status  = "200",
             message = "EducationCredential SD-JWT issued",
@@ -128,6 +148,13 @@ class SdJwtController(
             subjectDid      = body.subjectDid,
             selectiveClaims = body.selectiveClaims,
             alwaysVisible   = body.alwaysVisible,
+        )
+        fabricBridge.upsertVcRecord(
+            employeeId      = body.subjectDid.substringAfterLast(":"),
+            vcRecordType    = "${body.vct.uppercase()}_VC",
+            vcJsonOrCompact = issued.sdJwt,
+            action          = "ISSUE",
+            updatedBy       = currentActor(),
         )
         return ApiResponse(
             status  = "200",

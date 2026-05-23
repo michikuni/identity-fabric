@@ -6,6 +6,7 @@ import com.mpcorp.identity.common.response.ApiResponse
 import com.mpcorp.identity.domain.repository.AuthRepository
 import com.mpcorp.identity.infrastructures.fabric.FabricLedgerBridge
 import com.mpcorp.identity.infrastructures.persistence.jpa_entity.PayrollJpaEntity
+import com.mpcorp.identity.infrastructures.persistence.mapper.toDomainEntity
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.AttendanceJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.ContractJpaRepository
 import com.mpcorp.identity.infrastructures.persistence.jpa_repository.EmployeeJpaRepository
@@ -212,6 +213,13 @@ class AdminController(
             val vc = vcIssuerService.issueEmploymentVC(employee)
             employee.employmentVc = vc
             employeeJpaRepository.save(employee)
+            fabricBridge.upsertVcRecord(
+                employeeId   = employee.id.toString(),
+                vcRecordType = "EMPLOYMENT_VC",
+                vcJsonOrCompact = vc,
+                action       = "ISSUE",
+                updatedBy    = updated.email,
+            )
         }
 
         return ApiResponse(
@@ -238,6 +246,14 @@ class AdminController(
         )
         employee.salaryRangeVc = vc
         employeeJpaRepository.save(employee)
+        val actor = org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.name ?: "system"
+        fabricBridge.upsertVcRecord(
+            employeeId      = employee.id.toString(),
+            vcRecordType    = "SALARY_RANGE_VC",
+            vcJsonOrCompact = vc,
+            action          = "ISSUE",
+            updatedBy       = actor,
+        )
         return ApiResponse(status = "200", message = "SalaryRangeVC issued", data = mapOf("email" to email))
     }
 
@@ -269,6 +285,8 @@ class AdminController(
         }
         val payDay = parseTimestamp(body.payDay) ?: Timestamp.from(Instant.now())
         val existing = payrollJpaRepository.findPayrollByEmployeeId(employeeId)
+        val saved: PayrollJpaEntity
+        val action: String
         if (existing != null) {
             existing.salaryType = body.salaryType
             existing.baseSalary = body.baseSalary
@@ -281,9 +299,10 @@ class AdminController(
             existing.bankAccountName = body.bankAccountName ?: existing.bankAccountName
             existing.bankName = body.bankName ?: existing.bankName
             existing.bankBranch = body.bankBranch ?: existing.bankBranch
-            payrollJpaRepository.save(existing)
+            saved = payrollJpaRepository.save(existing)
+            action = "UPDATE"
         } else {
-            payrollJpaRepository.save(PayrollJpaEntity(
+            saved = payrollJpaRepository.save(PayrollJpaEntity(
                 employee = employee,
                 salaryType = body.salaryType,
                 baseSalary = body.baseSalary,
@@ -297,7 +316,9 @@ class AdminController(
                 bankName = body.bankName ?: "",
                 bankBranch = body.bankBranch,
             ))
+            action = "CREATE"
         }
+        fabricBridge.upsertPayrollRecord(saved.toDomainEntity(), action = action)
         return ApiResponse(status = "200", message = "Payroll saved", data = mapOf("employeeId" to employeeId))
     }
 
@@ -327,6 +348,8 @@ class AdminController(
         val startDate = parseTimestamp(body.startDate)
             ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid startDate")
         val existing = contractJpaRepository.findContractByEmployeeId(employeeId)
+        val saved: com.mpcorp.identity.infrastructures.persistence.jpa_entity.ContractJpaEntity
+        val action: String
         if (existing != null) {
             existing.typeContract = body.typeContract
             existing.startDate = startDate
@@ -336,9 +359,10 @@ class AdminController(
             if (body.taxCode != null) existing.taxCode = body.taxCode
             if (body.socialInsuranceNumber != null) existing.socialInsuranceNumber = body.socialInsuranceNumber
             if (body.healthInsuranceNumber != null) existing.healthInsuranceNumber = body.healthInsuranceNumber
-            contractJpaRepository.save(existing)
+            saved = contractJpaRepository.save(existing)
+            action = "UPDATE"
         } else {
-            contractJpaRepository.save(
+            saved = contractJpaRepository.save(
                 com.mpcorp.identity.infrastructures.persistence.jpa_entity.ContractJpaEntity(
                     employee = employee,
                     typeContract = body.typeContract,
@@ -352,7 +376,9 @@ class AdminController(
                     healthInsuranceNumber = body.healthInsuranceNumber,
                 )
             )
+            action = "CREATE"
         }
+        fabricBridge.upsertContractRecord(saved.toDomainEntity(), action = action)
         return ApiResponse(status = "200", message = "Contract saved", data = mapOf("employeeId" to employeeId))
     }
 
@@ -392,6 +418,14 @@ class AdminController(
         )
         employee.trainingVc = vc
         employeeJpaRepository.save(employee)
+        val actor = org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.name ?: "system"
+        fabricBridge.upsertVcRecord(
+            employeeId      = employeeId.toString(),
+            vcRecordType    = "TRAINING_VC",
+            vcJsonOrCompact = vc,
+            action          = "ISSUE",
+            updatedBy       = actor,
+        )
         return ApiResponse(
             status = "200", message = "TrainingVC issued",
             data = mapOf("employeeId" to employeeId, "vc" to vc)
@@ -418,6 +452,14 @@ class AdminController(
         )
         employee.ndaAcceptedVc = vc
         employeeJpaRepository.save(employee)
+        val actor = org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.name ?: "system"
+        fabricBridge.upsertVcRecord(
+            employeeId      = employeeId.toString(),
+            vcRecordType    = "NDA_VC",
+            vcJsonOrCompact = vc,
+            action          = "ISSUE",
+            updatedBy       = actor,
+        )
         return ApiResponse(
             status = "200", message = "NDA-AcceptedVC issued",
             data = mapOf("employeeId" to employeeId, "vc" to vc)

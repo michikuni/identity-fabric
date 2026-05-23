@@ -66,8 +66,16 @@ class EmployeeController(
                     )
                 }
                 emp.id?.let { statusListService.activate(it, updatedBy = username) }
-                emp.employmentVc = vcIssuerService.issueEmploymentVC(emp)
+                val vc = vcIssuerService.issueEmploymentVC(emp)
+                emp.employmentVc = vc
                 employeeJpaRepository.save(emp)
+                fabricBridge.upsertVcRecord(
+                    employeeId      = emp.id.toString(),
+                    vcRecordType    = "EMPLOYMENT_VC",
+                    vcJsonOrCompact = vc,
+                    action          = "ISSUE",
+                    updatedBy       = username,
+                )
             }
         }
 

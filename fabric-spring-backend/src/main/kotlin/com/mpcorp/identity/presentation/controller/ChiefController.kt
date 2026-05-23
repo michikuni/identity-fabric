@@ -157,16 +157,26 @@ class ChiefController(
         emp.position = newPosition
         authJpaRepository.save(emp.auth)
         // Issue PromotionVC if position actually changed
+        var newPromotionVc: String? = null
         if (oldPosition != newPosition || body.position != null) {
-            val promotionVc = vcIssuerService.issuePromotionVC(
+            newPromotionVc = vcIssuerService.issuePromotionVC(
                 employee    = emp,
                 oldPosition = oldPosition,
                 newPosition = newPosition,
                 promotedBy  = actor,
             )
-            emp.promotionVc = promotionVc
+            emp.promotionVc = newPromotionVc
         }
         employeeJpaRepository.save(emp)
+        newPromotionVc?.let { vc ->
+            ledgerBridge.upsertVcRecord(
+                employeeId      = id.toString(),
+                vcRecordType    = "PROMOTION_VC",
+                vcJsonOrCompact = vc,
+                action          = "ISSUE",
+                updatedBy       = actor,
+            )
+        }
         ledgerBridge.logRequest(id.toString(), "ROLE_CHANGE", body.role, actor)
         return ApiResponse(status = "200", message = "Role updated", data = mapOf("id" to id, "newRole" to body.role))
     }
