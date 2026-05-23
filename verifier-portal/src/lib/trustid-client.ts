@@ -19,15 +19,6 @@ export interface VcVerifyResult {
   disclosedClaims?: Record<string, unknown>
 }
 
-export interface TrustedIssuer {
-  did: string
-  name: string
-  role: string
-  scope: string
-  registeredAt: string
-  active: boolean
-}
-
 export interface DIDDocument {
   id: string
   '@context': string[]
@@ -183,11 +174,6 @@ export async function resolveDID(did: string): Promise<DIDDocument> {
     didDocumentMetadata: res.didDocumentMetadata,
     didResolutionMetadata: res.didResolutionMetadata,
   }
-}
-
-/** List trusted issuers from the on-chain Trust Registry */
-export async function listTrustedIssuers(): Promise<TrustedIssuer[]> {
-  return get<TrustedIssuer[]>('/api/v1/trust-registry/issuers')
 }
 
 /** Get the W3C Status List 2021 credential for a given listId */

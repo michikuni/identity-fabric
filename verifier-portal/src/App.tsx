@@ -1,7 +1,6 @@
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
 import VerifyResult from './pages/VerifyResult'
-import TrustRegistry from './pages/TrustRegistry'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useTranslation } from './i18n/I18nContext'
 
@@ -33,28 +32,7 @@ function Header() {
           <span className="text-lg font-semibold tracking-tight">{t('header.title')}</span>
           <span className="text-xs bg-white/20 rounded px-2 py-0.5">{t('header.badge')}</span>
         </div>
-        <div className="flex items-center gap-5">
-          <nav className="flex gap-6 text-sm font-medium">
-            <NavLink
-              to="/"
-              end
-              className={({ isActive }) =>
-                isActive ? 'text-white underline underline-offset-4' : 'text-white/70 hover:text-white'
-              }
-            >
-              {t('header.navVerify')}
-            </NavLink>
-            <NavLink
-              to="/trust-registry"
-              className={({ isActive }) =>
-                isActive ? 'text-white underline underline-offset-4' : 'text-white/70 hover:text-white'
-              }
-            >
-              {t('header.navTrustRegistry')}
-            </NavLink>
-          </nav>
-          <LanguageSwitcher />
-        </div>
+        <LanguageSwitcher />
       </div>
     </header>
   )
@@ -79,7 +57,6 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/verify" element={<VerifyResult />} />
-              <Route path="/trust-registry" element={<TrustRegistry />} />
             </Routes>
           </main>
           <Footer />
