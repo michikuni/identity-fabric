@@ -1,0 +1,9 @@
+nhom,test_case,lan_chay,don_vi,gia_tri_do,ghi_chu
+# Ví dụ ghi 3 lần chạy cho mỗi test rồi lấy trung vị. KHÔNG điền số nếu chưa chạy.
+REST,vc_verify,1,p95_ms,,
+REST,vc_verify,2,p95_ms,,
+REST,vc_verify,3,p95_ms,,
+CALIPER,RegisterDID,1,tps,,
+CALIPER,RegisterDID,1,avg_latency_s,,
+MOBILE,keygen_p256,1,ms,,
+PAYLOAD,EmploymentVC,1,bytes,,

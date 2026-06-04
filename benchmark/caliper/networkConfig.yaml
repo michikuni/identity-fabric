@@ -1,0 +1,26 @@
+# networkConfig.yaml — Cấu hình mạng Fabric cho Caliper (định dạng caliper-fabric 2.x).
+# ĐIỀN các <...> bằng đường dẫn tuyệt đối tới crypto material của bạn (xem mục 16 context).
+name: TrustID-Caliper-Network
+version: "2.0.0"
+caliper:
+  blockchain: fabric
+
+channels:
+  - channelName: mychannel
+    contracts:
+      - id: identity-ledger        # tên chaincode khi deploy (KHÔNG phải 'asset-transfer')
+
+organizations:
+  - mspid: Org1MSP
+    identities:
+      certificates:
+        - name: User1
+          clientPrivateKey:
+            # ví dụ: /home/<user>/identity-fabric/fabric-network/.../User1@org1.example.com/msp/keystore/<key>_sk
+            path: <ABS_PATH>/User1@org1.example.com/msp/keystore/<PRIV_KEY>_sk
+          clientSignedCert:
+            path: <ABS_PATH>/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem
+    connectionProfile:
+      # Sinh từ test-network (connection-org1.yaml) rồi đặt cạnh file này.
+      path: ./connection-org1.yaml
+      discover: true

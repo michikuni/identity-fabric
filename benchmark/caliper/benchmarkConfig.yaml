@@ -1,0 +1,50 @@
+# benchmarkConfig.yaml — 7 vòng đo tương ứng 7 giao dịch chaincode (Bảng 5.3).
+# Chỉnh rateControl/txNumber nếu cần. Tất cả vòng dùng chung workload/identityWorkload.js.
+test:
+  name: TrustID-Chaincode-Benchmark
+  description: Đo TPS/latency các giao dịch của chaincode identity-ledger
+  workers:
+    number: 5
+  rounds:
+    - label: RegisterDID
+      txNumber: 500
+      rateControl: { type: fixed-rate, opts: { tps: 10 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: RegisterDID, kind: submit, keyPrefix: did }
+    - label: UpsertRecord
+      txNumber: 500
+      rateControl: { type: fixed-rate, opts: { tps: 10 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: UpsertRecord, kind: submit, keyPrefix: profile }
+    - label: UpdateStatusListEntry
+      txNumber: 300
+      rateControl: { type: fixed-rate, opts: { tps: 5 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: UpdateStatusListEntry, kind: submit, keyPrefix: statuslist }
+    - label: GetRecord
+      txNumber: 2000
+      rateControl: { type: fixed-rate, opts: { tps: 200 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: GetRecord, kind: evaluate, keyPrefix: profile }
+    - label: GetRecordHistory
+      txNumber: 1000
+      rateControl: { type: fixed-rate, opts: { tps: 50 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: GetRecordHistory, kind: evaluate, keyPrefix: profile }
+    - label: IsTrustedIssuer
+      txNumber: 2000
+      rateControl: { type: fixed-rate, opts: { tps: 200 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: IsTrustedIssuer, kind: evaluate, keyPrefix: trustregistry }
+    - label: RecordSignature
+      txNumber: 300
+      rateControl: { type: fixed-rate, opts: { tps: 5 } }
+      workload:
+        module: workload/identityWorkload.js
+        arguments: { contractId: identity-ledger, func: RecordSignature, kind: submit, keyPrefix: signature }
