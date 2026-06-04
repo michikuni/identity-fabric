@@ -211,15 +211,24 @@ Mở `ket_qua/caliper_report.html`. Mỗi vòng cho: **Throughput (TPS)**, **Sen
 
 ### 3.4. Bảng 5.3 — Chaincode (điền cột "Đo được")
 
-| # | Giao dịch | Loại | Send rate | Baseline (TPS / Latency) | **TPS đo** | **Avg Latency đo** | **Fail** |
-|---|---|---|---|---|---|---|---|
-| 1 | `RegisterDID` | SUBMIT | 10 TPS | 8–15 TPS / 2–4s | | | |
-| 2 | `UpsertRecord` | SUBMIT | 10 TPS | 8–15 TPS / 2–4s | | | |
-| 3 | `UpdateStatusListEntry` | SUBMIT | 5 TPS | 5–10 TPS / 2–5s | | | |
-| 4 | `GetRecord` | EVALUATE | 200 TPS | 150–300 TPS / <100ms | | | |
-| 5 | `GetRecordHistory` | EVALUATE | 50 TPS | 30–80 TPS / 100–500ms | | | |
-| 6 | `IsTrustedIssuer` | EVALUATE | 200 TPS | 200–400 TPS / <50ms | | | |
-| 7 | `RecordSignature` | SUBMIT | 5 TPS | 5–10 TPS / 2–5s | | | |
+> **Đã đo** bằng Caliper (peer-gateway connector, fabric-gateway SDK 1.5.0), 5 worker,
+> commit `fdc3813`. Báo cáo HTML: `ket_qua/caliper_report.html`. **Tất cả Fail = 0.**
+
+| # | Giao dịch | Loại | Send rate | Baseline (TPS / Latency) | **TPS đo** | **Avg Latency đo** | **Max Lat.** | **Fail** |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `RegisterDID` | SUBMIT | 10 TPS | 8–15 TPS / 2–4s | 10.1 | **0.35s** | 0.66s | 0 |
+| 2 | `UpsertRecord` | SUBMIT | 10 TPS | 8–15 TPS / 2–4s | 10.1 | **0.35s** | 0.66s | 0 |
+| 3 | `UpdateStatusListEntry` | SUBMIT | 5 TPS | 5–10 TPS / 2–5s | 5.1 | **0.59s** | 1.13s | 0 |
+| 4 | `GetRecord` | EVALUATE | 200 TPS | 150–300 TPS / <100ms | 200.1 | **0.01s** | 0.07s | 0 |
+| 5 | `GetRecordHistory` | EVALUATE | 50 TPS | 30–80 TPS / 100–500ms | 50.2 | **0.01s** | 0.08s | 0 |
+| 6 | `IsTrustedIssuer` | EVALUATE | 200 TPS | 200–400 TPS / <50ms | 200.1 | **0.02s** | 0.06s | 0 |
+| 7 | `RecordSignature` | SUBMIT | 5 TPS | 5–10 TPS / 2–5s | 5.1 | **0.59s** | 1.12s | 0 |
+
+**Đọc đúng số liệu này khi bảo vệ (quan trọng):**
+- **Throughput đo = đúng send rate đã đặt** (10/5/200/50 TPS) với **Fail=0** → ở các mức tải này hệ thống **chưa bão hòa**; đây *không phải* TPS tối đa. Muốn tìm TPS trần phải tăng rate đến khi throughput chững lại hoặc Fail xuất hiện (có thể ghi là *hướng mở rộng*).
+- **Chỉ số có ý nghĩa nhất ở đây là độ trễ (latency)**: ghi chuỗi (SUBMIT) ~**0.35–0.59s**, đọc (EVALUATE) ~**10–20ms**.
+- **SUBMIT nhanh hơn baseline 2–5s nhiều lần** nhờ `BatchTimeout=2s` + endorsement đa-org do peer-gateway gom server-side; consistent với TC12 REST (~0.56s) — *cùng một thao tác ghi chuỗi nhìn từ 2 lớp*.
+- **EVALUATE 10–20ms** là query world-state (LevelDB) thuần, không qua ordering — khớp lý thuyết.
 
 ---
 
@@ -299,14 +308,19 @@ log VP string trong app/integration test rồi đếm độ dài.
 
 ### 5.1. Bảng 5.6 — Payload (điền cột "Đo được")
 
-| Loại payload | Định dạng | Baseline kỳ vọng | **Đo được (bytes)** |
-|---|---|---|---|
-| EmploymentVC | JWT | 800–1500 | |
-| SkillVC SD-JWT (10 claims) | JWT + disclosures | 2000–4000 | |
-| VP token (W3C VP) | JWT VP | 1500–3000 | |
-| Status List 2021 response | JSON-LD + GZIP bitstring | ~17 KB | |
-| QR code chứa VP | PNG (ECC level M) | < 50 KB | |
-| DID Document | JSON-LD | 500–1200 | |
+> **Đã đo** bằng `curl ... | wc -c` (employee 12), commit `fdc3813`.
+
+| Loại payload | Định dạng | Baseline kỳ vọng | **Đo được (bytes)** | Nhận xét |
+|---|---|---|---|---|
+| EmploymentVC | JSON VC (HMAC) | 800–1500 | **920** | ✅ trong khoảng |
+| SkillVC SD-JWT (10 claims) | SD-JWT + 10 disclosures | 2000–4000 | **1972** | Gần ngưỡng dưới — SD-JWT của TrustID gọn |
+| SD-JWT presentation (reveal 3/10) | SD-JWT chọn lọc | 1500–3000 | **1529** | Proxy cho VP; chỉ tiết lộ 3/10 claim → nhỏ hơn VC gốc |
+| VP token (W3C VP) | JWT VP | 1500–3000 | *(đo trên ví — Mục 4 bỏ)* | Sinh bởi Flutter wallet |
+| Status List 2021 response | JSON-LD + GZIP bitstring | ~17 KB | **761** | Bitstring 131072-bit hầu hết = 0 → gzip nén còn ~0.7 KB (đúng kỳ vọng cho list ít thu hồi) |
+| QR code chứa VP | PNG (ECC level M) | < 50 KB | *(đo trên ví — Mục 4 bỏ)* | Sinh bởi Flutter wallet |
+| DID Document | JSON-LD | 500–1200 | **668** | ✅ trong khoảng (full DID Resolution Result kèm metadata = 1045 B) |
+
+**Phân tích payload:** TrustID dùng **HMAC-SHA256** thay vì chữ ký bất đối xứng (ECDSA/EdDSA) → VC/SD-JWT **nhỏ gọn hơn** (không mang chữ ký 64–96 byte + public key). Status List nén gzip cực hiệu quả khi tỉ lệ thu hồi thấp (761 B << 17 KB lý thuyết của bitstring chưa nén). Selective disclosure giảm payload theo số claim tiết lộ (reveal 3/10 = 1529 B < SD-JWT đầy đủ 1972 B).
 
 ---
 

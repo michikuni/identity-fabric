@@ -1,0 +1,23 @@
+# connection-org1.yaml — Common Connection Profile cho Caliper (Org1, 1 peer gateway).
+# Kết nối tới peer0.org1 qua localhost:7051; peer gateway tự thu thập endorsement đa-org.
+name: TrustID-org1
+version: 1.0.0
+client:
+  organization: Org1
+  connection:
+    timeout:
+      peer:
+        endorser: '300'
+organizations:
+  Org1:
+    mspid: Org1MSP
+    peers:
+      - peer0.org1.example.com
+peers:
+  peer0.org1.example.com:
+    url: grpcs://localhost:7051
+    tlsCACerts:
+      path: /home/minhphuonglcby/identity-fabric/fabric-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
+    grpcOptions:
+      ssl-target-name-override: peer0.org1.example.com
+      hostnameOverride: peer0.org1.example.com

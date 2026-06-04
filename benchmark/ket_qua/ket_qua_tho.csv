@@ -13,11 +13,22 @@ REST,did_resolve,100rps_60s,latency,7.42,9.64,13.05,0.00,DIF Universal Resolver 
 REST,trust_registry,100rps_60s,latency,7.76,16.96,30.68,0.00,Danh sach issuer cong khai
 REST,ledger_write,10rps_60s,latency,558.51,966.68,975.87,0.00,Fabric SUBMIT dong bo (key unique/req tranh MVCC); nhanh hon baseline 2-5s
 REST,ledger_read,100rps_60s,latency,9.74,13.57,18.87,0.00,ADMIN; Fabric query (EVALUATE)
-# PAYLOAD (do duoc trong qua trinh seed) — Bang 5.6
-PAYLOAD,EmploymentVC,-,bytes,,,,,"920 bytes (chuoi VC JSON tra ve tu /identity/vc/employment/12)"
-PAYLOAD,SkillVC_SDJWT,-,bytes,,,,,"1096 bytes (SD-JWT skill 3 claims); presentation reveal 1 claim = 976 bytes"
-# CALIPER (Bang 5.3) — chua chay, lam o Muc 3 cua RUNBOOK
-CALIPER,RegisterDID,10tps,tps,,,,,
-CALIPER,UpsertRecord,10tps,tps,,,,,
+# PAYLOAD (Bang 5.6) — do bang curl|wc -c tren employee 12. Cot p50_ms tai su dung lam 'bytes'.
+PAYLOAD,EmploymentVC,JSON_VC_HMAC,bytes,920,,,,"baseline 800-1500 -> dat"
+PAYLOAD,SkillVC_SDJWT_10claims,SDJWT,bytes,1972,,,,"baseline 2000-4000 -> gan nguong duoi (SD-JWT gon)"
+PAYLOAD,SDJWT_presentation_3of10,SDJWT,bytes,1529,,,,"proxy cho VP token; reveal 3/10 claim"
+PAYLOAD,StatusList2021_response,JSONLD_gzip,bytes,761,,,,"baseline ~17KB; bitstring 131072-bit chu yeu 0 -> gzip nen con 0.7KB"
+PAYLOAD,DID_Document,JSONLD,bytes,668,,,,"baseline 500-1200 -> dat; full resolution result voi metadata = 1045 bytes"
+PAYLOAD,VP_token_W3C,JWT_VP,bytes,,,,,"do tren vi Flutter (Muc 4 bo qua)"
+PAYLOAD,QR_code_VP,PNG,bytes,,,,,"do tren vi Flutter (Muc 4 bo qua)"
+# CALIPER (Bang 5.3) — peer-gateway/fabric-gateway 1.5.0, 5 workers. Cot p50/p95/p99 = avg_latency_s. Fail=0 het.
+# Throughput do = send rate da dat (chua bao hoa) → so co nghia la LATENCY.
+CALIPER,RegisterDID,10tps_submit,tps_lat,,,,0,"TPS=10.1 avg_lat=0.35s max=0.66s min=0.08s Fail=0 (baseline 8-15TPS/2-4s)"
+CALIPER,UpsertRecord,10tps_submit,tps_lat,,,,0,"TPS=10.1 avg_lat=0.35s max=0.66s min=0.07s Fail=0 (baseline 8-15TPS/2-4s)"
+CALIPER,UpdateStatusListEntry,5tps_submit,tps_lat,,,,0,"TPS=5.1 avg_lat=0.59s max=1.13s min=0.08s Fail=0 (baseline 5-10TPS/2-5s)"
+CALIPER,GetRecord,200tps_eval,tps_lat,,,,0,"TPS=200.1 avg_lat=0.01s max=0.07s min=0.01s Fail=0 (baseline 150-300TPS/<100ms)"
+CALIPER,GetRecordHistory,50tps_eval,tps_lat,,,,0,"TPS=50.2 avg_lat=0.01s max=0.08s min=0.01s Fail=0 (baseline 30-80TPS/100-500ms)"
+CALIPER,IsTrustedIssuer,200tps_eval,tps_lat,,,,0,"TPS=200.1 avg_lat=0.02s max=0.06s min=0.01s Fail=0 (baseline 200-400TPS/<50ms)"
+CALIPER,RecordSignature,5tps_submit,tps_lat,,,,0,"TPS=5.1 avg_lat=0.59s max=1.12s min=0.07s Fail=0 (baseline 5-10TPS/2-5s)"
 # MOBILE (Bang 5.5) — chua chay, lam o Muc 4 cua RUNBOOK
 MOBILE,keygen_p256,10lan,ms,,,,,
