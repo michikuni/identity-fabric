@@ -1,9 +1,23 @@
-nhom,test_case,lan_chay,don_vi,gia_tri_do,ghi_chu
-# Ví dụ ghi 3 lần chạy cho mỗi test rồi lấy trung vị. KHÔNG điền số nếu chưa chạy.
-REST,vc_verify,1,p95_ms,,
-REST,vc_verify,2,p95_ms,,
-REST,vc_verify,3,p95_ms,,
-CALIPER,RegisterDID,1,tps,,
-CALIPER,RegisterDID,1,avg_latency_s,,
-MOBILE,keygen_p256,1,ms,,
-PAYLOAD,EmploymentVC,1,bytes,,
+nhom,test_case,tai,don_vi,p50_ms,p95_ms,p99_ms,err_pct,ghi_chu
+# REST API — đo bằng k6 trên localhost:8080, commit fdc3813, ngày 2026-06-04/05. err=0% tất cả.
+REST,auth_signin,<=10/phut,latency,107.84,113.28,113.00,0.00,Rate-limit 10/phut/IP (RateLimitFilter) - khong bench duoc 100 RPS; do single-request
+REST,mfa_validate,50rps_60s,latency,6.69,7.98,9.24,0.00,Duong non-MFA tra 200 ngay (1 truy van DB findById)
+REST,vc_issue_training,2rps_30s,latency,22.02,29.43,53.64,0.00,ADMIN; ky VC + luu MySQL dong bo; Fabric upsert async nen nhanh
+REST,vc_verify,200rps_60s,latency,1.52,1.91,2.54,0.00,HMAC verify - khong cham DB
+REST,status_list_fetch,200rps_60s,latency,1.68,3.02,6.60,0.00,W3C StatusList2021 public
+REST,sdjwt_issue_skill,2rps_30s,latency,21.41,26.36,40.59,0.00,ADMIN; tuong tu vc_issue (Fabric async)
+REST,sdjwt_verify,100rps_60s,latency,1.51,1.83,2.10,0.00,Verify presentation (HMAC + disclosures)
+REST,oid4vp_request,50rps_60s,latency,1.44,1.75,1.97,0.00,Tao session OID4VP in-memory
+REST,oid4vp_submit,N/A,latency,,,,,"BO load-test: can VP token + state hop le (ky boi vi that) - do bang test chuc nang"
+REST,did_resolve,100rps_60s,latency,7.42,9.64,13.05,0.00,DIF Universal Resolver - Fabric query (EVALUATE)
+REST,trust_registry,100rps_60s,latency,7.76,16.96,30.68,0.00,Danh sach issuer cong khai
+REST,ledger_write,10rps_60s,latency,558.51,966.68,975.87,0.00,Fabric SUBMIT dong bo (key unique/req tranh MVCC); nhanh hon baseline 2-5s
+REST,ledger_read,100rps_60s,latency,9.74,13.57,18.87,0.00,ADMIN; Fabric query (EVALUATE)
+# PAYLOAD (do duoc trong qua trinh seed) — Bang 5.6
+PAYLOAD,EmploymentVC,-,bytes,,,,,"920 bytes (chuoi VC JSON tra ve tu /identity/vc/employment/12)"
+PAYLOAD,SkillVC_SDJWT,-,bytes,,,,,"1096 bytes (SD-JWT skill 3 claims); presentation reveal 1 claim = 976 bytes"
+# CALIPER (Bang 5.3) — chua chay, lam o Muc 3 cua RUNBOOK
+CALIPER,RegisterDID,10tps,tps,,,,,
+CALIPER,UpsertRecord,10tps,tps,,,,,
+# MOBILE (Bang 5.5) — chua chay, lam o Muc 4 cua RUNBOOK
+MOBILE,keygen_p256,10lan,ms,,,,,

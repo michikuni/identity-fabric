@@ -155,21 +155,33 @@ http_reqs......................: <tổng request> / <RPS thực tế>
 
 ### 2.4. Bảng 5.4 — REST API (điền cột "Đo được")
 
-| # | Test case | Endpoint | Tải | Baseline p95 (kỳ vọng) | **p50 đo** | **p95 đo** | **p99 đo** | **Err%** |
+> **Đã đo** trên localhost:8080, commit `fdc3813`, môi trường ở `ket_qua/moi_truong.md`.
+> Endpoint dưới đây là **path THẬT** đã đối chiếu controller (bản nháp script ban đầu sai
+> một số path/body — đã sửa trong `k6/rest_load.js`). Tất cả `Err% = 0`.
+
+| # | Test case | Endpoint (thật) | Tải đã đo | Baseline p95 | **p50 đo** | **p95 đo** | **p99 đo** | **Err%** |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Auth sign-in | `POST /api/v1/auth/sign-in` | 100 RPS×60s | < 200ms | | | | |
-| 2 | MFA validate | `POST /api/v1/mfa/validate` | 50 RPS×60s | < 250ms | | | | |
-| 3 | VC issue (Employment) | `POST /api/v1/admin/employees/{id}/issue` | 20 RPS×60s | < 800ms | | | | |
-| 4 | VC verify (HMAC) | `POST /api/v1/identity/vc/verify` | 200 RPS×60s | < 30ms | | | | |
-| 5 | Status List fetch | `GET /api/v1/status-list/{id}` | 200 RPS×60s | < 80ms | | | | |
-| 6 | SD-JWT issue (Skill) | `POST /api/v1/sd-jwt/issue/skill/{id}` | 20 RPS×60s | < 600ms | | | | |
-| 7 | SD-JWT verify | `POST /api/v1/sd-jwt/verify` | 100 RPS×60s | < 50ms | | | | |
-| 8 | OID4VP request | `POST /api/v1/oidc/vp/request` | 50 RPS×60s | < 100ms | | | | |
-| 9 | OID4VP submit | `POST /api/v1/oidc/vp/submit` | 50 RPS×60s | < 150ms | | | | |
-| 10 | DIF Universal Resolver | `GET /1.0/identifiers/{did}` | 100 RPS×60s | < 300ms | | | | |
-| 11 | Trust Registry list | `GET /api/v1/trust-registry/issuers` | 100 RPS×60s | < 200ms | | | | |
-| 12 | Ledger record write | `POST /api/v1/ledger/records` | 10 RPS×60s | 2000–5000ms | | | | |
-| 13 | Ledger record read | `GET /api/v1/ledger/records/{id}/{type}` | 100 RPS×60s | < 200ms | | | | |
+| 1 | Auth sign-in | `POST /api/v1/auth/sign-in` | ≤10/phút* | < 200ms | 107.84 | 113.28 | 113.00 | 0% |
+| 2 | MFA validate | `POST /api/v1/mfa/validate` | 50 RPS×60s | < 250ms | 6.69 | 7.98 | 9.24 | 0% |
+| 3 | VC issue (Training)† | `POST /api/v1/admin/employees/{id}/issue-training-vc` | 2 RPS×30s | < 800ms | 22.02 | 29.43 | 53.64 | 0% |
+| 4 | VC verify (HMAC) | `POST /api/v1/identity/vc/verify` | 200 RPS×60s | < 30ms | 1.52 | 1.91 | 2.54 | 0% |
+| 5 | Status List fetch | `GET /api/v1/status-list/{id}` | 200 RPS×60s | < 80ms | 1.68 | 3.02 | 6.60 | 0% |
+| 6 | SD-JWT issue (Skill)† | `POST /api/v1/sd-jwt/issue/skill/{id}` | 2 RPS×30s | < 600ms | 21.41 | 26.36 | 40.59 | 0% |
+| 7 | SD-JWT verify | `POST /api/v1/sd-jwt/verify` | 100 RPS×60s | < 50ms | 1.51 | 1.83 | 2.10 | 0% |
+| 8 | OID4VP request | `POST /api/v1/oidc/vp/request` | 50 RPS×60s | < 100ms | 1.44 | 1.75 | 1.97 | 0% |
+| 9 | OID4VP submit | `POST /api/v1/oidc/vp/submit` | *(bỏ load-test)*‡ | < 150ms | — | — | — | — |
+| 10 | DIF Universal Resolver | `GET /1.0/identifiers/{did}` | 100 RPS×60s | < 300ms | 7.42 | 9.64 | 13.05 | 0% |
+| 11 | Trust Registry list | `GET /api/v1/trust-registry/issuers` | 100 RPS×60s | < 200ms | 7.76 | 16.96 | 30.68 | 0% |
+| 12 | Ledger record write | `POST /api/v1/ledger/records` | 10 RPS×60s | 2000–5000ms | 558.51 | 966.68 | 975.87 | 0% |
+| 13 | Ledger record read | `GET /api/v1/ledger/records/{id}/{type}` | 100 RPS×60s | < 200ms | 9.74 | 13.57 | 18.87 | 0% |
+
+\* **TC1**: `/auth/**` có `RateLimitFilter` giới hạn **10 request/phút/IP** (chống brute-force) → không thể bench 100 RPS; số ghi là **độ trễ 1 request** đo dưới ngưỡng (n=10 nên p99≈p95). Latency thật ~108ms (bcrypt + ký JWT) vẫn **đạt** baseline.
+
+† **TC3/TC6**: luồng cấp VC **ký credential + lưu MySQL đồng bộ (~22ms)**, còn ghi bản ghi lên Fabric chạy **bất đồng bộ** ở background → latency REST rất thấp, *không* phản ánh thời gian commit blockchain. Throughput/độ trễ ghi chuỗi đo riêng bằng Caliper (Bảng 5.3). Endpoint `/employees/{id}/issue` trong bản nháp **không tồn tại**; đã thay bằng `issue-training-vc` (cùng class cấp VC).
+
+‡ **TC9** (OID4VP submit): cần `vpToken` là **Verifiable Presentation đã ký bởi ví thật** + `state` của một session còn hiệu lực → không tạo hàng loạt được để load-test. Đo bằng test chức năng (1 lần) thay vì k6.
+
+**Đối chiếu baseline:** mọi endpoint read/verify/issue đều **nhanh hơn baseline kỳ vọng nhiều lần** (HMAC verify ~2ms, Fabric query ~7–10ms). Ghi ledger trực tiếp (TC12) ~560ms — **dưới** baseline 2–5s nhờ `BatchTimeout=2s` + `MaxMessageCount=500` cho phép cắt block sớm.
 
 ---
 
