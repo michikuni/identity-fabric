@@ -28,7 +28,7 @@ const jsonHeaders = { headers: { 'Content-Type': 'application/json' } };
 // LƯU Ý: body của các endpoint issue/verify/oidc cần khớp schema thực tế của backend bạn —
 // hãy mở controller tương ứng và chỉnh body cho đúng trước khi đo.
 const CASES = {
-  1:  { name: 'auth_signin',        method: 'POST', url: `${BASE}/api/v1/auth/sign-in`,                       body: { email: __ENV.LOGIN_EMAIL || 'user@example.com', password: __ENV.LOGIN_PASSWORD || 'password' }, rate: 100, dur: '60s', p95: 200, auth: false },
+  1:  { name: 'auth_signin',        method: 'POST', url: `${BASE}/api/v1/auth/sign-in`,                       body: { username: __ENV.LOGIN_USERNAME || __ENV.LOGIN_EMAIL || 'user@example.com', password: __ENV.LOGIN_PASSWORD || 'password' }, rate: 100, dur: '60s', p95: 200, auth: false },
   2:  { name: 'mfa_validate',       method: 'POST', url: `${BASE}/api/v1/mfa/validate`,                       body: { code: '000000' },                                rate: 50,  dur: '60s', p95: 250, auth: true },
   3:  { name: 'vc_issue_employment',method: 'POST', url: `${BASE}/api/v1/admin/employees/${EMP_ID}/issue`,    body: { type: 'EmploymentVC' },                          rate: 20,  dur: '60s', p95: 800, auth: true },
   4:  { name: 'vc_verify',          method: 'POST', url: `${BASE}/api/v1/identity/vc/verify`,                 body: { vcId: __ENV.VC_ID || '1' },                      rate: 200, dur: '60s', p95: 30,  auth: true },
