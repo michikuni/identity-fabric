@@ -47,6 +47,8 @@ const tc = CASES[TC];
 if (!tc) { throw new Error(`TC không hợp lệ: ${TC} (hợp lệ 1..13)`); }
 
 export const options = {
+  // Bắt k6 tính cả p(99) — mặc định chỉ có tới p(95), khiến cột p99 ra 0.
+  summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
   scenarios: {
     [tc.name]: {
       executor: 'constant-arrival-rate',
